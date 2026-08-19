@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { motion, useScroll, useSpring } from 'framer-motion'
-import { ArrowUpRight, Check, Github, Linkedin, Mail, Menu, Moon, MoveUpRight, Sun, X } from 'lucide-react'
+import { motion, useScroll, useSpring, Variants } from 'framer-motion'
+import { ArrowUpRight, Check, Mail, Menu, Moon, MoveUpRight, Sun, X } from 'lucide-react'
 import { experience, navItems, profile, projects, skills, socials } from '@/lib/portfolio-data'
 
-const fadeUp = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0, transition: { duration: 0.65, ease: 'easeOut' } } }
+const fadeUp: Variants = { 
+  hidden: { opacity: 0, y: 24 }, 
+  visible: { opacity: 1, y: 0, transition: { duration: 0.65, ease: 'easeOut' } } 
+}
 
 function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: boolean) => void }) {
   const [active, setActive] = useState('home')
