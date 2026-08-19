@@ -67,6 +67,9 @@ jobs:
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
 
+      - name: Debug Tailscale identity
+        run: tailscale status --self --json
+
       - name: Write SSH key and known_hosts
         run: |
           mkdir -p ~/.ssh
