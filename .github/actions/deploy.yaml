@@ -1,0 +1,50 @@
+name: Deploy Portfolio
+
+on:
+  push:
+    branches: [ "main" ]
+
+# Grant permissions for the OIDC JWT token
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+
+      - name: Deploy to Pi Zero via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEVICE_HOST }}
+          username: ${{ secrets.DEVICE_USERNAME }}
+          key: ${{ secrets.DEVICE_SSH_KEY }}
+          script: |
+            # Navigate to your external mount
+            cd ../../mnt/external/portfolio-deployment
+            
+            # Kill the process currently occupying port 605 (ignore errors if it's already down)
+            fuser -k 605/tcp || true
+            
+            # Check if the repo is already cloned. If yes, pull the latest. If not, clone it.
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/treymouledoux/portfolio .
+            fi
+            
+            # Ensure the run script is executable
+            chmod +x portfolio-run.sh
+            
+            # Execute the run script
+            ./portfolio-run.sh
