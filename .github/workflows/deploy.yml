@@ -29,8 +29,6 @@ jobs:
           targets: aarch64-unknown-linux-gnu
 
       - name: Install aarch64 linker
-        # Pure-Rust deps (axum/tokio/tower-http) — no C libs — so a plain cross
-        # build just needs the GNU aarch64 linker. No Docker/`cross` required.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
@@ -67,15 +65,24 @@ jobs:
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
 
-      - name: Debug Tailscale identity
-        run: tailscale status --self --json
-
       - name: Write SSH key and known_hosts
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEVICE_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEVICE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # ---------- STOP (release the running binary so scp can overwrite it) ----------
+      - name: Stop the service before copying
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEVICE_HOST }}
+          username: ${{ secrets.DEVICE_USERNAME }}
+          key: ${{ secrets.DEVICE_SSH_KEY }}
+          script: |
+            # Stop the running server so its binary isn't locked/busy when scp
+            # overwrites it. `|| true` so a first-ever deploy (no unit yet) won't fail.
+            sudo systemctl stop portfolio.service || true
 
       # ---------- SHIP (copy prebuilt artifacts; the Pi never compiles) ----------
       - name: Copy artifacts to the Pi
@@ -103,8 +110,8 @@ jobs:
             sudo systemctl daemon-reload
             sudo systemctl enable portfolio.service cloudflared.service
 
-            # Restart to pick up the new binary. systemd stops the old process
-            # holding port 560, so no manual `fuser -k` needed.
+            # Service was stopped before the copy, so this starts it fresh on the
+            # new binary. `restart` also covers the case where it's somehow still up.
             sudo systemctl restart portfolio.service
             sudo systemctl restart cloudflared.service
 
