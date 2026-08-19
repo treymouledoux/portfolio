@@ -20,24 +20,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ---------- BUILD FRONTEND (Next.js with pnpm) ----------
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # pnpm/setup@v2 is the successor to pnpm/action-setup for pnpm v11+. It
+      # installs pnpm's self-contained binary AND Node.js in one step (replacing
+      # actions/setup-node), and auto-runs `pnpm install` on the package.json
+      # it's pointed at.
+      - name: Set up pnpm and Node
+        uses: pnpm/setup@v2
         with:
-          node-version: 20
-          cache: 'pnpm'
+          version: 11
+          runtime: node@24
+          cache: true
           cache-dependency-path: portfolio-static/pnpm-lock.yaml
+          package-json-file: portfolio-static/package.json
 
-      - name: Install frontend dependencies and build
+      - name: Build frontend
         working-directory: portfolio-static
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
+        # Dependencies were already installed by pnpm/setup above.
+        run: pnpm build
 
       # ---------- BUILD RUST (cross-compiled on the x86 runner) ----------
       - name: Install Rust toolchain
@@ -90,7 +92,7 @@ jobs:
 
       # ---------- STOP (release the running binary so scp can overwrite it) ----------
       - name: Stop the service before copying
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEVICE_HOST }}
           username: ${{ secrets.DEVICE_USERNAME }}
@@ -109,7 +111,7 @@ jobs:
 
       # ---------- INSTALL & RUN (on the Pi) ----------
       - name: Install and restart services on the Pi
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEVICE_HOST }}
           username: ${{ secrets.DEVICE_USERNAME }}
