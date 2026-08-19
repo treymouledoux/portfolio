@@ -10,13 +10,56 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  TARGET: aarch64-unknown-linux-gnu   # Pi Zero 2 W (64-bit)
+  BIN_NAME: portfolio-serve           # Cargo package name
+  REMOTE_DIR: /mnt/external/portfolio-deployment
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ---------- BUILD (cross-compiled on the x86 runner) ----------
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install aarch64 linker
+        # Pure-Rust deps (axum/tokio/tower-http) — no C libs — so a plain cross
+        # build just needs the GNU aarch64 linker. No Docker/`cross` required.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: portfolio-serve
+          key: ${{ env.TARGET }}
+
+      - name: Cross-compile release binary
+        working-directory: portfolio-serve
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ env.TARGET }} --bin ${{ env.BIN_NAME }}
+
+      - name: Stage artifacts for upload
+        run: |
+          mkdir -p stage
+          # The compiled binary
+          cp portfolio-serve/target/${{ env.TARGET }}/release/${{ env.BIN_NAME }} stage/
+          # The systemd units
+          cp deploy/portfolio.service stage/
+          cp deploy/cloudflared.service stage/
+          # main.rs serves ServeDir::new("assets"), so the static folder must be
+          # delivered as `assets/` next to the binary — not as `portfolio-static/`.
+          cp -r portfolio-static stage/assets
+
+      # ---------- CONNECT ----------
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
@@ -24,28 +67,44 @@ jobs:
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
 
-      - name: Deploy to Pi Zero via SSH
+      - name: Write SSH key and known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEVICE_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEVICE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # ---------- SHIP (copy prebuilt artifacts; the Pi never compiles) ----------
+      - name: Copy artifacts to the Pi
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r \
+            stage/* \
+            ${{ secrets.DEVICE_USERNAME }}@${{ secrets.DEVICE_HOST }}:${{ env.REMOTE_DIR }}/
+
+      # ---------- INSTALL & RUN (on the Pi) ----------
+      - name: Install and restart services on the Pi
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEVICE_HOST }}
           username: ${{ secrets.DEVICE_USERNAME }}
           key: ${{ secrets.DEVICE_SSH_KEY }}
           script: |
-            # Navigate to your external mount
-            cd ../../mnt/external/portfolio-deployment
-            
-            # Kill the process currently occupying port 605 (ignore errors if it's already down)
-            fuser -k 605/tcp || true
-            
-            # Check if the repo is already cloned. If yes, pull the latest. If not, clone it.
-            if [ -d ".git" ]; then
-              git pull origin main
-            else
-              git clone https://github.com/treymouledoux/portfolio .
-            fi
-            
-            # Ensure the run script is executable
-            chmod +x portfolio-run.sh
-            
-            # Execute the run script
-            ./portfolio-run.sh
+            set -e
+            cd ${{ env.REMOTE_DIR }}
+
+            chmod +x ${{ env.BIN_NAME }}
+
+            # Install/refresh both systemd units
+            sudo cp portfolio.service /etc/systemd/system/portfolio.service
+            sudo cp cloudflared.service /etc/systemd/system/cloudflared.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable portfolio.service cloudflared.service
+
+            # Restart to pick up the new binary. systemd stops the old process
+            # holding port 560, so no manual `fuser -k` needed.
+            sudo systemctl restart portfolio.service
+            sudo systemctl restart cloudflared.service
+
+            sleep 2
+            sudo systemctl --no-pager --full status portfolio.service || true
+            sudo systemctl --no-pager --full status cloudflared.service || true

@@ -1,0 +1,24 @@
+[Unit]
+Description=Portfolio web server (axum, port 6050)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# User that owns the deployment directory (change if you deploy as someone else)
+User=trey
+# main.rs uses ServeDir::new("assets") with a RELATIVE path, so the process must
+# run from the directory that contains `assets/`. This is that directory.
+WorkingDirectory=/mnt/external/portfolio-deployment
+ExecStart=/mnt/external/portfolio-deployment/portfolio-serve
+
+# Restart automatically on crash or reboot
+Restart=always
+RestartSec=3
+
+# Logs go to the journal: view with `journalctl -u portfolio -f`
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

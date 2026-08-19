@@ -1,0 +1,21 @@
+[Unit]
+Description=Cloudflare Tunnel for portfolio
+After=network-online.target portfolio.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trey
+# Runs the named tunnel exactly like your old portfolio-run.sh did.
+# Requires the tunnel credentials to already exist on the Pi (see notes):
+#   ~/.cloudflared/cert.pem  and  the tunnel's credentials JSON
+ExecStart=/usr/bin/cloudflared tunnel run portfolio-tunnel
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
