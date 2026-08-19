@@ -1,2 +1,4 @@
 .DS_Store
 portfolio-serve/target
+portfolio-static/node_modules
+portfolio-static/.next

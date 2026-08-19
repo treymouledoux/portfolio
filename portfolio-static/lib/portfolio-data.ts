@@ -16,16 +16,17 @@ export type Experience = {
 }
 
 export const profile = {
-  name: 'Alex Morgan',
-  role: 'Product designer & creative developer',
-  tagline: 'I turn complex ideas into clear, considered digital experiences.',
-  bio: 'I’m a multidisciplinary designer and developer based in New York. I work at the intersection of brand, product, and technology to make digital products feel more human.',
-  email: 'hello@alexmorgan.design',
-  location: 'New York, NY',
+  name: 'Trey Mouledoux',
+  role: 'Software Developer',
+  tagline: 'I love building software that makes a difference.',
+  bio: 'I\'m a software developer based in TN. I specialize in Rust, Python, and JavaScript, and I have a passion for creating innovative solutions that solve real-world problems. When I\'m not coding, you can find me exploring the outdoors.',
+  email: 'temp@temp.com',
+  location: 'Nashville, TN',
 }
 
-export const skills = ['Product design', 'Design systems', 'Art direction', 'React', 'Next.js', 'Prototyping', 'Webflow', 'Framer Motion']
+export const skills = ['Programming', 'Cyber Security', 'Rust', 'Python', 'Linux', 'Homelabing']
 
+// TODO: Add more projects and experience as needed
 export const projects: Project[] = [
   {
     title: 'Arc / Financial clarity',
@@ -55,15 +56,14 @@ export const projects: Project[] = [
 ]
 
 export const experience: Experience[] = [
-  { period: '2022 — Now', role: 'Independent designer & developer', company: 'Self-employed', description: 'Partnering with early-stage teams and ambitious founders to shape products from first sketch to launch.' },
-  { period: '2020 — 2022', role: 'Senior product designer', company: 'Northstar Studio', description: 'Led product design across fintech and healthcare, building systems that scaled from MVP to millions of users.' },
-  { period: '2017 — 2020', role: 'Designer / developer', company: 'Good Company', description: 'Created identities and interactive experiences for culture, technology, and consumer brands.' },
+  { period: '2022 — 2026', role: 'Code Sensei', company: 'Code Ninjas', description: 'Teaching and mentoring aspiring developers in JavaScript, Lua, and AI.' },
+  { period: '2026 — 2030', role: 'Student', company: 'MTSU', description: 'Learning and growing as a software developer.' },
 ]
 
 export const socials = [
-  { label: 'GitHub', href: '#' },
-  { label: 'LinkedIn', href: '#' },
-  { label: 'X / Twitter', href: '#' },
+  { label: 'GitHub', href: 'https://github.com/treymouledoux' },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/in/trey-mouledoux-77959a42b/' },
+  { label: 'Instagram', href: 'https://www.instagram.com/treymouledoux/' },
 ]
 
 export const navItems = [

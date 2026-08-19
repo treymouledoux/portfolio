@@ -3,12 +3,12 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Alex Morgan — Product designer & creative developer',
-  description: 'The portfolio of Alex Morgan, a product designer and creative developer turning complex ideas into clear digital experiences.',
-  generator: 'v0.app',
+  title: 'Trey Mouledoux: Software Developer',
+  description: 'The portfolio of Trey Mouledoux',
   openGraph: {
-    title: 'Alex Morgan — Product designer & creative developer',
-    description: 'Designing digital experiences with clarity.',
+    title: 'Trey Mouledoux — Software Developer',
+    description: 'Creating innovative software solutions.',
+
     type: 'website',
   },
   icons: {
