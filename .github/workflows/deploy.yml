@@ -30,7 +30,6 @@ jobs:
       - name: Set up pnpm and Node
         uses: pnpm/setup@v2
         with:
-          version: 11
           runtime: node@24
           cache: true
           cache-dependency-path: portfolio-static/pnpm-lock.yaml
