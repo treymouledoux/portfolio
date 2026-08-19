@@ -22,7 +22,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------- BUILD (cross-compiled on the x86 runner) ----------
+      # ---------- BUILD FRONTEND (Next.js with pnpm) ----------
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: portfolio-static/pnpm-lock.yaml
+
+      - name: Install frontend dependencies and build
+        working-directory: portfolio-static
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      # ---------- BUILD RUST (cross-compiled on the x86 runner) ----------
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -53,9 +72,8 @@ jobs:
           # The systemd units
           cp deploy/portfolio.service stage/
           cp deploy/cloudflared.service stage/
-          # main.rs serves ServeDir::new("assets"), so the static folder must be
-          # delivered as `assets/` next to the binary — not as `portfolio-static/`.
-          cp -r portfolio-static stage/assets
+          # Copy the compiled Next.js static output (out/) into assets/ next to the binary
+          cp -r portfolio-static/out stage/assets
 
       # ---------- CONNECT ----------
       - name: Connect to Tailscale
