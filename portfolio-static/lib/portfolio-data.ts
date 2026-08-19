@@ -33,7 +33,7 @@ export const projects: Project[] = [
     description: 'Keyboard dynamic lighting RGB intergration for Wooting analog keyboards.',
     image: 'https://image.shutterstock.com/image-photo/closeup-analog-keyboard-keys-260nw-1921681870.jpg',
     tags: ['Hardware', 'Rust'],
-    live: '#',
+    live: 'https://treymouledoux.github.io/Wootili-View/',
     github: 'https://github.com/treymouledoux/wootili-view',
     featured: true,
   },
@@ -42,7 +42,7 @@ export const projects: Project[] = [
     description: 'An esoteric programming language developed by me which gives users a limitation of 9 bits of memory.',
     image: 'https://github.com/treymouledoux/Grid9/blob/main/.github/assets/banner.png?raw=true',
     tags: ['Nim', 'Programming Language'],
-    live: '#',
+    live: 'https://treymouledoux.github.io/Grid9/',
     github: 'https://github.com/treymouledoux/Grid9',
   },
   {
@@ -50,7 +50,7 @@ export const projects: Project[] = [
     description: 'A lightweight and effienct regex moderation bot for discord built in rust which features advanced logging, smart compiled regex caches and registry, and a modular design with extension in mind.',
     image: 'https://github.com/treymouledoux/Regy-Bot/blob/master/.github/assets/regy_banner.png?raw=true',
     tags: ['Rust', 'Real deployment', 'Discord Bot', 'Regex'],
-    live: '#',
+    live: 'https://treymouledoux.github.io/Regy-Bot/',
     github: 'https://github.com/treymouledoux/Regy-Bot',
   },
 ]
