@@ -34,11 +34,13 @@ jobs:
           cache: true
           cache-dependency-path: portfolio-static/pnpm-lock.yaml
           package-json-file: portfolio-static/package.json
+          install: false
 
       - name: Build frontend
         working-directory: portfolio-static
-        # Dependencies were already installed by pnpm/setup above.
-        run: pnpm build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
 
       # ---------- BUILD RUST (cross-compiled on the x86 runner) ----------
       - name: Install Rust toolchain
