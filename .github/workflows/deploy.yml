@@ -79,7 +79,7 @@ jobs:
         run: |
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r \
             stage/* \
-            ${{ secrets.DEVICE_USERNAME }}@${{ secrets.DEVICE_HOST }}:${{ env.REMOTE_DIR }}/
+            root@${{ secrets.DEVICE_HOST }}:${{ env.REMOTE_DIR }}/
 
       # ---------- INSTALL & RUN (on the Pi) ----------
       - name: Install and restart services on the Pi
