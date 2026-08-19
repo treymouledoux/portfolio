@@ -5,8 +5,8 @@ use tower_http::services::ServeDir;
 async fn main() {
     let app = Router::new().nest_service("/portfolio-static", ServeDir::new("assets"));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:560").await.unwrap();
-    println!("Serving static files on http://localhost:560");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:6050").await.unwrap();
+    println!("Serving static files on http://localhost:6050");
     
     axum::serve(listener, app).await.unwrap();
 }
