@@ -7,7 +7,7 @@ import { navItems } from '@/lib/portfolio-data'
 import { clearPointerGlow, scrollToSection, setPointerGlow } from '@/lib/portfolio-utils'
 
 export function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: boolean) => void }) {
-  const [active, setActive] = useState('home')
+  const [active, setActive] = useState('about')
   const [open, setOpen] = useState(false)
   const { scrollYProgress } = useScroll()
   const scaleX = useSpring(scrollYProgress, { stiffness: 100, damping: 30 })
@@ -23,7 +23,7 @@ export function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: bo
     <motion.div className="progress-bar" style={{ scaleX }} />
     <header className="fixed inset-x-0 top-4 z-50 px-4 sm:top-6">
       <nav className="glass-nav glass-interactive mx-auto flex max-w-5xl items-center justify-between p-2" onPointerMove={setPointerGlow} onPointerLeave={clearPointerGlow} aria-label="Main navigation">
-        <button className="nav-mark" onClick={() => navigate('#home')} aria-label="Go to home">AM<span>.</span></button>
+        <button className="nav-mark" onClick={() => navigate('#home')} aria-label="Go to home">Trey Mouledoux<span>.</span></button>
         <div className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => <button key={item.href} onClick={() => navigate(item.href)} className={`nav-link ${active === item.href.slice(1) ? 'active' : ''}`}>{active === item.href.slice(1) && <motion.span layoutId="active-nav-pill" className="active-nav-pill" />}{item.label}</button>)}
         </div>

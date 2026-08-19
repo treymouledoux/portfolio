@@ -24,39 +24,40 @@ export const profile = {
   location: 'Nashville, TN',
 }
 
-export const skills = ['Programming', 'Cyber Security', 'Rust', 'Python', 'Linux', 'Homelabing']
+export const skills = ['Programming', 'Cyber Security', 'Rust', 'Python', 'Linux', 'Homelabbing']
 
 // TODO: Add more projects and experience as needed
 export const projects: Project[] = [
   {
-    title: 'Arc / Financial clarity',
-    description: 'A calmer way to understand your money, designed for the next generation of builders.',
-    image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=85',
-    tags: ['Product', 'Brand', 'Web app'],
+    title: 'Wootili-View',
+    description: 'Keyboard dynamic lighting RGB intergration for Wooting analog keyboards.',
+    image: 'https://image.shutterstock.com/image-photo/closeup-analog-keyboard-keys-260nw-1921681870.jpg',
+    tags: ['Hardware', 'Rust'],
     live: '#',
-    github: '#',
+    github: 'https://github.com/treymouledoux/wootili-view',
     featured: true,
   },
   {
-    title: 'Morrow Objects',
-    description: 'An editorial commerce experience for objects made to last.',
-    image: 'https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=1200&q=85',
-    tags: ['E-commerce', 'Art direction'],
+    title: 'Grid9',
+    description: 'An esoteric programming language developed by me which gives users a limitation of 9 bits of memory.',
+    image: 'https://github.com/treymouledoux/Grid9/blob/main/.github/assets/banner.png?raw=true',
+    tags: ['Nim', 'Programming Language'],
     live: '#',
-    github: '#',
+    github: 'https://github.com/treymouledoux/Grid9',
   },
   {
-    title: 'Field Notes',
-    description: 'A lightweight research tool that helps teams make better decisions together.',
-    image: 'https://images.unsplash.com/photo-1456324504439-367cee3b3c32?auto=format&fit=crop&w=1200&q=85',
-    tags: ['SaaS', 'UX strategy'],
+    title: 'Regy Bot',
+    description: 'A lightweight and effienct regex moderation bot for discord built in rust which features advanced logging, smart compiled regex caches and registry, and a modular design with extension in mind.',
+    image: 'https://github.com/treymouledoux/Regy-Bot/blob/master/.github/assets/regy_banner.png?raw=true',
+    tags: ['Rust', 'Real deployment', 'Discord Bot', 'Regex'],
     live: '#',
-    github: '#',
+    github: 'https://github.com/treymouledoux/Regy-Bot',
   },
 ]
 
 export const experience: Experience[] = [
   { period: '2022 — 2026', role: 'Code Sensei', company: 'Code Ninjas', description: 'Teaching and mentoring aspiring developers in JavaScript, Lua, and AI.' },
+  { period: '2023 — 2025', role: 'CyberPatriot Competitor (Franklin TN team)', company: 'National Youth Cyber Education Program (CyberPatriot)', description: 'Building web applications and software solutions for clients.' },
   { period: '2026 — 2030', role: 'Student', company: 'MTSU', description: 'Learning and growing as a software developer.' },
 ]
 
@@ -67,7 +68,6 @@ export const socials = [
 ]
 
 export const navItems = [
-  { label: 'Home', href: '#home' },
   { label: 'About', href: '#about' },
   { label: 'Projects', href: '#projects' },
   { label: 'Experience', href: '#experience' },
