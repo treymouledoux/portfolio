@@ -12,8 +12,8 @@ export const metadata: Metadata = {
     type: 'website',
   },
   icons: {
-    icon: [{ url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' }, { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' }, { url: '/icon.svg', type: 'image/svg+xml' }],
-    apple: '/apple-icon.png',
+    icon: [{ url: '/icon-light-32x32.png?v=2', media: '(prefers-color-scheme: light)' }, { url: '/icon-dark-32x32.png?v=2', media: '(prefers-color-scheme: dark)' }, { url: '/icon.svg?v=2', type: 'image/svg+xml' }],
+    apple: '/apple-icon.png?v=2',
   },
 }
 
@@ -23,5 +23,5 @@ export const viewport: Viewport = {
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en" className="dark"><body className="antialiased">{children}{process.env.NODE_ENV === 'production' && <Analytics />}</body></html>
+  return <html lang="en"><body className="antialiased">{children}{process.env.NODE_ENV === 'production' && <Analytics />}</body></html>
 }
