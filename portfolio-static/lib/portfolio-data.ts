@@ -30,7 +30,7 @@ export const skills = ['Programming', 'Cyber Security', 'Rust', 'Python', 'Linux
 export const projects: Project[] = [
   {
     title: 'Wootili-View',
-    description: 'Keyboard dynamic lighting RGB intergration for Wooting analog keyboards.',
+    description: 'Keyboard dynamic RGB lighting intergration for Wooting analog keyboards. This project allows users to mirror the content from their screen onto their Wooting keyboard, creating an immersive experience. The project is built in Rust and utilizes the Wooting SDK for seamless integration with the keyboard hardware.',
     image: 'https://image.shutterstock.com/image-photo/closeup-analog-keyboard-keys-260nw-1921681870.jpg',
     tags: ['Hardware', 'Rust'],
     live: 'https://treymouledoux.github.io/Wootili-View/',
@@ -39,7 +39,7 @@ export const projects: Project[] = [
   },
   {
     title: 'Grid9',
-    description: 'An esoteric programming language developed by me which gives users a limitation of 9 bits of memory.',
+    description: 'An esoteric programming language developed by me which gives users a limitation of 9 bits of memory. Users must utilize tools like flip, set, and clear to manipulate the memory and perform operations. The language is designed to be challenging and fun to use.',
     image: 'https://github.com/treymouledoux/Grid9/blob/main/.github/assets/banner.png?raw=true',
     tags: ['Nim', 'Programming Language'],
     live: 'https://treymouledoux.github.io/Grid9/',
