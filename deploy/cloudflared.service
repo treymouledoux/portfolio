@@ -6,10 +6,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=trey
-# Runs the named tunnel exactly like your old portfolio-run.sh did.
-# Requires the tunnel credentials to already exist on the Pi (see notes):
-#   ~/.cloudflared/cert.pem  and  the tunnel's credentials JSON
-ExecStart=/usr/bin/cloudflared tunnel run portfolio-tunnel
+# Requires the tunnel credentials to already exist on the Pi:
+#   ~/.cloudflared/cert.pem, the tunnel's credentials JSON, and config.yml
+# --config is explicit so systemd loads the right file regardless of HOME.
+ExecStart=/usr/bin/cloudflared --config /home/trey/.cloudflared/config.yml tunnel run portfolio-tunnel
 
 Restart=always
 RestartSec=5

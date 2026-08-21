@@ -56,9 +56,9 @@ export const projects: Project[] = [
 ]
 
 export const experience: Experience[] = [
-  { period: '2022 — 2026', role: 'Code Sensei', company: 'Code Ninjas', description: 'Teaching and mentoring aspiring developers in JavaScript, Lua, and AI.' },
-  { period: '2023 — 2025', role: 'CyberPatriot Competitor (Franklin TN team)', company: 'National Youth Cyber Education Program (CyberPatriot)', description: 'Building web applications and software solutions for clients.' },
-  { period: '2026 — 2030', role: 'Student', company: 'MTSU', description: 'Learning and growing as a software developer.' },
+  { period: '2022 — 2026', role: 'Code Sensei', company: 'Code Ninjas', description: 'Teaching and mentoring young developers in JavaScript, Lua, and AI. Worked a total of 4 years in this role throughout high school. Attended the program before working as a code sensei.' },
+  { period: '2023 — 2025', role: 'CyberPatriot Competitor', company: 'National Youth Cyber Education Program (CyberPatriot)', description: 'Participated in 3 years of competitive cybersecurity events provided by the CyberPatriot program, teams are assigned to lock down windows, linux, and windows server instances and are graded accordingly.' },
+  { period: '2026 — 2030', role: 'Undergraduate Student', company: 'Middle Tennessee State University', description: 'Learning and growing as a software developer.' },
 ]
 
 export const socials = [

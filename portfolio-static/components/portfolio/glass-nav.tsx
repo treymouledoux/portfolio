@@ -29,8 +29,8 @@ export function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: bo
         </div>
         <div className="flex items-center gap-1">
           <button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button>
-          <button className="icon-button md:hidden" onClick={() => setOpen(!open)} aria-label={open ? 'Close menu' : 'Open menu'}>{open ? <X size={18} /> : <Menu size={18} />}</button>
-          <button className="nav-cta hidden sm:flex" onClick={() => navigate('#contact')}>Let&apos;s talk <ArrowUpRight size={15} /></button>
+          <button className="icon-button menu-toggle" onClick={() => setOpen(!open)} aria-label={open ? 'Close menu' : 'Open menu'}>{open ? <X size={18} /> : <Menu size={18} />}</button>
+          <button className="nav-cta hidden sm:flex" onClick={() => navigate('#contact')}>Let's talk <ArrowUpRight size={15} /></button>
         </div>
       </nav>
       <AnimatePresence>

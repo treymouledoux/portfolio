@@ -2,3 +2,4 @@
 portfolio-serve/target
 portfolio-static/node_modules
 portfolio-static/.next
+portfolio-static/out
