@@ -37,6 +37,15 @@ a { color: inherit; text-decoration: none; }
 .glass-interactive:active::before { background: radial-gradient(185px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), color-mix(in oklab, var(--pointer-glow) 26%, transparent), transparent 70%); }
 .nav-link.active { background: transparent; }
 .active-nav-pill { border-color: color-mix(in oklab, var(--selection) 30%, transparent); background: color-mix(in oklab, var(--selection) 15%, transparent); box-shadow: 0 0 16px color-mix(in oklab, var(--selection) 18%, transparent), 0 0 0 1px color-mix(in oklab, var(--selection) 10%, transparent); }
+.mobile-menu { transform-origin: top center; box-shadow: 0 22px 55px rgba(0,0,0,.18), inset 0 1px 0 color-mix(in oklab, white 48%, transparent), inset 0 -1px 0 color-mix(in oklab, var(--foreground) 12%, transparent); backdrop-filter: blur(46px) saturate(180%); -webkit-backdrop-filter: blur(46px) saturate(180%); }
+.mobile-menu::after { opacity: .85; background: linear-gradient(135deg, color-mix(in oklab, white 16%, transparent), transparent 38%, transparent 68%, color-mix(in oklab, var(--accent) 14%, transparent)); }
+.mobile-link { border-radius: .9rem; transition: background .25s ease, color .25s ease, padding-left .25s ease; }
+.glass-nav { background: var(--acrylic-noise), linear-gradient(rgba(0,0,0,.07), rgba(0,0,0,.07)), color-mix(in oklab, var(--background) 62%, transparent); backdrop-filter: blur(28px) saturate(145%); -webkit-backdrop-filter: blur(28px) saturate(145%); }
+.glass-nav::before { opacity: .26; }
+.glass-nav::after { opacity: .42; background: linear-gradient(115deg, color-mix(in oklab, white 8%, transparent), transparent 28%, transparent 72%, color-mix(in oklab, var(--accent) 5%, transparent)); }
+.mobile-menu { backdrop-filter: blur(30px) saturate(150%); -webkit-backdrop-filter: blur(30px) saturate(150%); box-shadow: 0 18px 42px rgba(0,0,0,.14), inset 0 1px 0 color-mix(in oklab, white 28%, transparent), inset 0 -1px 0 color-mix(in oklab, var(--foreground) 8%, transparent); }
+.mobile-menu::after { opacity: .48; }
+.mobile-link:hover { background: color-mix(in oklab, var(--foreground) 9%, transparent); color: var(--foreground); padding-left: 1rem; }
 .contact-form fieldset { display: contents; }
 .contact-form.is-submitted { opacity: .55; }
 .contact-form .button.is-submitted, .nav-cta.is-submitted { background: #2f9e62; color: #fff; box-shadow: 0 8px 20px rgba(47, 158, 98, .24); }

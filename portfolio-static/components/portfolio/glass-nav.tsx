@@ -34,7 +34,7 @@ export function GlassNav({ dark, setDark, submitted }: { dark: boolean; setDark:
         </div>
       </nav>
       <AnimatePresence>
-        {open && <motion.div initial={{ opacity: 0, y: -10, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: .97 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} className="glass-nav glass-interactive mobile-menu md:hidden" onPointerMove={setPointerGlow} onPointerLeave={clearPointerGlow}>{navItems.map((item) => <motion.button whileTap={{ scale: .97 }} key={item.href} onClick={() => navigate(item.href)} className="mobile-link">{item.label}<ArrowUpRight size={16} /></motion.button>)}</motion.div>}
+          {open && <motion.div initial={{ opacity: 0, height: 0, y: -12, scale: .94, filter: 'blur(10px)' }} animate={{ opacity: 1, height: 'auto', y: 0, scale: 1, filter: 'blur(0px)' }} exit={{ opacity: 0, height: 0, y: -8, scale: .96, filter: 'blur(8px)' }} transition={{ type: 'spring', stiffness: 330, damping: 26, mass: .8 }} className="glass-nav glass-interactive mobile-menu md:hidden" onPointerMove={setPointerGlow} onPointerLeave={clearPointerGlow}>{navItems.map((item, index) => <motion.button initial={{ opacity: 0, x: -12, y: -4 }} animate={{ opacity: 1, x: 0, y: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ type: 'spring', stiffness: 420, damping: 25, delay: index * .045 }} whileTap={{ scale: .97 }} key={item.href} onClick={() => navigate(item.href)} className="mobile-link">{item.label}<ArrowUpRight size={16} /></motion.button>)}</motion.div>}
       </AnimatePresence>
     </header>
   </>
