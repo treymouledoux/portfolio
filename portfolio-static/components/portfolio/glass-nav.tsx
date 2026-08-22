@@ -30,7 +30,7 @@ export function GlassNav({ dark, setDark, submitted }: { dark: boolean; setDark:
         <div className="flex items-center gap-1">
           <button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`} title={`Switch to ${dark ? 'light' : 'dark'} mode`}>{dark ? <Moon size={17} /> : <Sun size={17} />}</button>
           <button className="icon-button menu-toggle" onClick={() => setOpen(!open)} aria-label={open ? 'Close menu' : 'Open menu'}>{open ? <X size={18} /> : <Menu size={18} />}</button>
-          <button className={`nav-cta hidden sm:flex ${submitted ? 'is-submitted' : ''}`} onClick={() => navigate('#contact')} disabled={submitted}>{submitted ? <>Message sent <Check size={15} /></> : <>Let's talk <ArrowUpRight size={15} /></>}</button>
+          <button className={`nav-cta hidden sm:flex ${submitted ? 'is-submitted' : ''}`} onClick={() => navigate('#contact')} disabled={submitted} title={submitted ? 'You can resubmit an hour after your previous submission' : undefined}>{submitted ? <>Message sent <Check size={15} /></> : <>Let's talk <ArrowUpRight size={15} /></>}</button>
         </div>
       </nav>
       <AnimatePresence>

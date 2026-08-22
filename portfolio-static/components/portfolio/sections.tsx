@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowUpRight, Check, Mail, MoveUpRight } from 'lucide-react'
 import { experience, profile, projects, skills, socials } from '@/lib/portfolio-data'
-import { submitContactForm, type ContactFormData } from '@/lib/contact'
+import { setContactCooldown, submitContactForm, type ContactFormData } from '@/lib/contact'
 import { fadeUp, scrollToSection } from '@/lib/portfolio-utils'
 
 export function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) { return <div className="section-heading"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div></div> }
@@ -35,6 +35,7 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
 
             if (result.success) {
                 console.log(result.reply_message);
+                setContactCooldown();
                 setSubmitted(true);
             }
         } catch (error) {
@@ -45,12 +46,12 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
     };
 
     return <section id="contact" className="section-wrap contact-section section-block"><div className="contact-copy"><p className="eyebrow">04 / Contact</p><h2>Have a good idea?<br /><em>Let's make it real.</em></h2><p>I'm currently available for hire.</p><div className="social-list">{socials.map((social) => <a href={social.href} key={social.label}>{social.label} <ArrowUpRight size={15} /></a>)}</div></div>
-    <form className={`contact-form ${submitted ? 'is-submitted' : ''}`} onSubmit={handleFormSubmit}>
+    <form className={`contact-form ${submitted ? 'is-submitted' : ''}`} onSubmit={handleFormSubmit} title={submitted ? 'You can resubmit an hour after your previous submission' : undefined}>
         <fieldset disabled={submitted || submitting}>
         <label>Name<input required name="name" placeholder="Your name" /></label>
         <label>Email<input required type="email" name="email" placeholder="you@company.com" /></label>
         <label>Message<textarea required name="message" rows={4} placeholder="Tell me a little about your project..." /></label>
-        <button className={`button button-dark ${submitted ? 'is-submitted' : ''}`} type="submit">
+        <button className={`button button-dark ${submitted ? 'is-submitted' : ''}`} type="submit" title={submitted ? 'You can resubmit an hour after your previous submission' : undefined}>
             {submitted ? <>Message sent <Check size={16} /></> : <>Send message <ArrowUpRight size={16} /></>}
         </button>
         </fieldset>
