@@ -25,7 +25,7 @@ export function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: bo
       <nav className="glass-nav glass-interactive mx-auto flex max-w-5xl items-center justify-between p-2" onPointerMove={setPointerGlow} onPointerLeave={clearPointerGlow} aria-label="Main navigation">
         <button className="nav-mark" onClick={() => navigate('#home')} aria-label="Go to home">Trey Mouledoux<span>.</span></button>
         <div className="hidden items-center gap-1 md:flex">
-          {navItems.map((item) => <button key={item.href} onClick={() => navigate(item.href)} className={`nav-link ${active === item.href.slice(1) ? 'active' : ''}`}>{active === item.href.slice(1) && <motion.span layoutId="active-nav-pill" className="active-nav-pill" />}{item.label}</button>)}
+          {navItems.map((item) => <button key={item.href} onClick={() => navigate(item.href)} className={`nav-link ${active === item.href.slice(1) ? 'active' : ''}`}>{active === item.href.slice(1) && <motion.span layoutId="active-nav-pill" transition={{ type: 'spring', stiffness: 340, damping: 18, mass: .65 }} className="active-nav-pill" />}{item.label}</button>)}
         </div>
         <div className="flex items-center gap-1">
           <button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`} title={`Switch to ${dark ? 'light' : 'dark'} mode`}>{dark ? <Moon size={17} /> : <Sun size={17} />}</button>
