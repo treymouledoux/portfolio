@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowUpRight, Check, Mail, MoveUpRight } from 'lucide-react'
 import { experience, profile, projects, skills, socials } from '@/lib/portfolio-data'
+import { submitContactForm, type ContactFormData } from '@/lib/contact'
 import { fadeUp, scrollToSection } from '@/lib/portfolio-utils'
 
 export function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) { return <div className="section-heading"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div></div> }
@@ -14,6 +15,41 @@ export function Projects() { return <section id="projects" className="section-wr
 
 export function Experience() { return <section id="experience" className="section-wrap section-block"><SectionHeading eyebrow="03 / Experience" title="The path so far." /><div className="timeline">{experience.map((item) => <div className="timeline-item" key={item.period}><div className="timeline-date">{item.period}</div><div className="timeline-dot" /><div className="timeline-content"><h3>{item.role}</h3><p className="company">{item.company}</p><p>{item.description}</p></div></div>)}</div></section> }
 
-export function Contact() { const [sent, setSent] = useState(false); return <section id="contact" className="section-wrap contact-section section-block"><div className="contact-copy"><p className="eyebrow">04 / Contact</p><h2>Have a good idea?<br /><em>Let's make it real.</em></h2><p>I'm currently available for hire.</p><div className="social-list">{socials.map((social) => <a href={social.href} key={social.label}>{social.label} <ArrowUpRight size={15} /></a>)}</div></div><form className="contact-form" onSubmit={(event) => { event.preventDefault(); setSent(true) }}><label>Name<input required name="name" placeholder="Your name" /></label><label>Email<input required type="email" name="email" placeholder="you@company.com" /></label><label>Message<textarea required name="message" rows={4} placeholder="Tell me a little about your project..." /></label><button className="button button-dark" type="submit">{sent ? <>Message sent <Check size={16} /></> : <>Send message <ArrowUpRight size={16} /></>}</button></form></section> }
+export function Contact() {
+    const [sent, setSent] = useState(false);
+
+    const handleFormSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+        event.preventDefault();
+
+        const formData = new FormData(event.currentTarget);
+        const data: ContactFormData = {
+            name: String(formData.get('name') ?? ''),
+            email: String(formData.get('email') ?? ''),
+            message: String(formData.get('message') ?? ''),
+        };
+
+        try {
+            const result = await submitContactForm(data);
+
+            if (result.success) {
+                console.log(result.reply_message);
+                setSent(true);
+            }
+        } catch (error) {
+            console.error('Failed to send message:', error);
+        }
+    };
+
+    return <section id="contact" className="section-wrap contact-section section-block"><div className="contact-copy"><p className="eyebrow">04 / Contact</p><h2>Have a good idea?<br /><em>Let's make it real.</em></h2><p>I'm currently available for hire.</p><div className="social-list">{socials.map((social) => <a href={social.href} key={social.label}>{social.label} <ArrowUpRight size={15} /></a>)}</div></div>
+    <form className="contact-form" onSubmit={handleFormSubmit}>
+        <label>Name<input required name="name" placeholder="Your name" /></label>
+        <label>Email<input required type="email" name="email" placeholder="you@company.com" /></label>
+        <label>Message<textarea required name="message" rows={4} placeholder="Tell me a little about your project..." /></label>
+    
+        <button className="button button-dark" type="submit">
+            {sent ? <>Message sent <Check size={16} /></> : <>Send message <ArrowUpRight size={16} /></>}
+        </button>
+    </form>
+</section> }
 
 export function Footer() { return <footer className="footer section-wrap"><span>© 2026 {profile.name}</span><span>Designed & built with intention.</span><a href="#about">Back to top ↑</a></footer> }
