@@ -15,11 +15,13 @@ export function Projects() { return <section id="projects" className="section-wr
 
 export function Experience() { return <section id="experience" className="section-wrap section-block"><SectionHeading eyebrow="03 / Experience" title="The path so far." /><div className="timeline">{experience.map((item) => <div className="timeline-item" key={item.period}><div className="timeline-date">{item.period}</div><div className="timeline-dot" /><div className="timeline-content"><h3>{item.role}</h3><p className="company">{item.company}</p><p>{item.description}</p></div></div>)}</div></section> }
 
-export function Contact() {
-    const [sent, setSent] = useState(false);
+export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSubmitted: (value: boolean) => void }) {
+    const [submitting, setSubmitting] = useState(false);
 
     const handleFormSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
         event.preventDefault();
+        if (submitting || submitted) return;
+        setSubmitting(true);
 
         const formData = new FormData(event.currentTarget);
         const data: ContactFormData = {
@@ -33,22 +35,25 @@ export function Contact() {
 
             if (result.success) {
                 console.log(result.reply_message);
-                setSent(true);
+                setSubmitted(true);
             }
         } catch (error) {
             console.error('Failed to send message:', error);
+        } finally {
+            setSubmitting(false);
         }
     };
 
     return <section id="contact" className="section-wrap contact-section section-block"><div className="contact-copy"><p className="eyebrow">04 / Contact</p><h2>Have a good idea?<br /><em>Let's make it real.</em></h2><p>I'm currently available for hire.</p><div className="social-list">{socials.map((social) => <a href={social.href} key={social.label}>{social.label} <ArrowUpRight size={15} /></a>)}</div></div>
-    <form className="contact-form" onSubmit={handleFormSubmit}>
+    <form className={`contact-form ${submitted ? 'is-submitted' : ''}`} onSubmit={handleFormSubmit}>
+        <fieldset disabled={submitted || submitting}>
         <label>Name<input required name="name" placeholder="Your name" /></label>
         <label>Email<input required type="email" name="email" placeholder="you@company.com" /></label>
         <label>Message<textarea required name="message" rows={4} placeholder="Tell me a little about your project..." /></label>
-    
-        <button className="button button-dark" type="submit">
-            {sent ? <>Message sent <Check size={16} /></> : <>Send message <ArrowUpRight size={16} /></>}
+        <button className={`button button-dark ${submitted ? 'is-submitted' : ''}`} type="submit">
+            {submitted ? <>Message sent <Check size={16} /></> : <>Send message <ArrowUpRight size={16} /></>}
         </button>
+        </fieldset>
     </form>
 </section> }
 

@@ -37,3 +37,8 @@ a { color: inherit; text-decoration: none; }
 .glass-interactive:active::before { background: radial-gradient(185px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), color-mix(in oklab, var(--pointer-glow) 26%, transparent), transparent 70%); }
 .nav-link.active { background: transparent; }
 .active-nav-pill { border-color: color-mix(in oklab, var(--selection) 30%, transparent); background: color-mix(in oklab, var(--selection) 15%, transparent); box-shadow: 0 0 16px color-mix(in oklab, var(--selection) 18%, transparent), 0 0 0 1px color-mix(in oklab, var(--selection) 10%, transparent); }
+.contact-form fieldset { display: contents; }
+.contact-form.is-submitted { opacity: .55; }
+.contact-form .button.is-submitted, .nav-cta.is-submitted { background: #2f9e62; color: #fff; box-shadow: 0 8px 20px rgba(47, 158, 98, .24); }
+.contact-form .button:disabled, .nav-cta:disabled { cursor: not-allowed; }
+.contact-form .button:disabled:hover { transform: none; }

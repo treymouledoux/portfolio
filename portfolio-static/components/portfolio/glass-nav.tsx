@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, useScroll, useSpring } from 'framer-motion'
-import { ArrowUpRight, Menu, Moon, Sun, X } from 'lucide-react'
+import { ArrowUpRight, Check, Menu, Moon, Sun, X } from 'lucide-react'
 import { navItems } from '@/lib/portfolio-data'
 import { clearPointerGlow, scrollToSection, setPointerGlow } from '@/lib/portfolio-utils'
 
-export function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: boolean) => void }) {
+export function GlassNav({ dark, setDark, submitted }: { dark: boolean; setDark: (value: boolean) => void; submitted: boolean }) {
   const [active, setActive] = useState('about')
   const [open, setOpen] = useState(false)
   const { scrollYProgress } = useScroll()
@@ -30,7 +30,7 @@ export function GlassNav({ dark, setDark }: { dark: boolean; setDark: (value: bo
         <div className="flex items-center gap-1">
           <button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`} title={`Switch to ${dark ? 'light' : 'dark'} mode`}>{dark ? <Moon size={17} /> : <Sun size={17} />}</button>
           <button className="icon-button menu-toggle" onClick={() => setOpen(!open)} aria-label={open ? 'Close menu' : 'Open menu'}>{open ? <X size={18} /> : <Menu size={18} />}</button>
-          <button className="nav-cta hidden sm:flex" onClick={() => navigate('#contact')}>Let's talk <ArrowUpRight size={15} /></button>
+          <button className={`nav-cta hidden sm:flex ${submitted ? 'is-submitted' : ''}`} onClick={() => navigate('#contact')} disabled={submitted}>{submitted ? <>Message sent <Check size={15} /></> : <>Let's talk <ArrowUpRight size={15} /></>}</button>
         </div>
       </nav>
       <AnimatePresence>

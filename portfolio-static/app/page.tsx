@@ -6,6 +6,7 @@ import { About, Contact, Experience, Footer, Projects } from '@/components/portf
 
 export default function Page() {
   const [dark, setDark] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
   useEffect(() => {
     const preference = window.matchMedia('(prefers-color-scheme: dark)')
     const syncPreference = () => setDark(preference.matches)
@@ -14,5 +15,5 @@ export default function Page() {
     return () => preference.removeEventListener('change', syncPreference)
   }, [])
   useEffect(() => { document.documentElement.classList.toggle('dark', dark) }, [dark])
-  return <div className="portfolio-shell"><GlassNav dark={dark} setDark={setDark} /><main><About /><Projects /><Experience /><Contact /></main><Footer /></div>
+  return <div className="portfolio-shell"><GlassNav dark={dark} setDark={setDark} submitted={submitted} /><main><About /><Projects /><Experience /><Contact submitted={submitted} setSubmitted={setSubmitted} /></main><Footer /></div>
 }
