@@ -31,7 +31,7 @@ export const projects: Project[] = [
   {
     title: 'Wootili-View',
     description: 'Keyboard dynamic RGB lighting intergration for Wooting analog keyboards. This project allows users to mirror the content from their screen onto their Wooting keyboard, creating an immersive experience. The project is built in Rust and utilizes the Wooting SDK for seamless integration with the keyboard hardware.',
-    image: 'https://image.shutterstock.com/image-photo/closeup-analog-keyboard-keys-260nw-1921681870.jpg',
+    image: 'https://github.com/treymouledoux/wootili-view/blob/master/.github/assets/example_usage.jpeg?raw=true',
     tags: ['Hardware', 'Rust'],
     live: 'https://treymouledoux.github.io/Wootili-View/',
     github: 'https://github.com/treymouledoux/wootili-view',

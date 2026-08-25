@@ -17,11 +17,15 @@ export function Experience() { return <section id="experience" className="sectio
 
 export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSubmitted: (value: boolean) => void }) {
     const [submitting, setSubmitting] = useState(false);
+    const [replyMessage, setReplyMessage] = useState('');
+    const [errorMessage, setErrorMessage] = useState('');
 
     const handleFormSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
         event.preventDefault();
         if (submitting || submitted) return;
         setSubmitting(true);
+        setReplyMessage('');
+        setErrorMessage('');
 
         const formData = new FormData(event.currentTarget);
         const data: ContactFormData = {
@@ -34,12 +38,13 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
             const result = await submitContactForm(data);
 
             if (result.success) {
-                console.log(result.reply_message);
+                setReplyMessage(result.reply_message ?? 'Thanks, your message has been sent.');
                 setContactCooldown();
                 setSubmitted(true);
             }
         } catch (error) {
             console.error('Failed to send message:', error);
+            setErrorMessage(error instanceof Error ? error.message : 'Unable to send message. Please try again.');
         } finally {
             setSubmitting(false);
         }
@@ -52,9 +57,11 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
         <label>Email<input required type="email" name="email" placeholder="you@company.com" /></label>
         <label>Message<textarea required name="message" rows={4} placeholder="Tell me a little about your project..." /></label>
         <button className={`button button-dark ${submitted ? 'is-submitted' : ''}`} type="submit" title={submitted ? 'You can resubmit an hour after your previous submission' : undefined}>
-            {submitted ? <>Message sent <Check size={16} /></> : <>Send message <ArrowUpRight size={16} /></>}
+            {submitted ? <>Message sent <Check size={16} /></> : submitting ? <>Sending message...</> : <>Send message <ArrowUpRight size={16} /></>}
         </button>
         </fieldset>
+        {replyMessage && <p className="contact-status contact-status-success" role="status" aria-live="polite">{replyMessage}</p>}
+        {errorMessage && <p className="contact-status contact-status-error" role="alert">{errorMessage}</p>}
     </form>
 </section> }
 
