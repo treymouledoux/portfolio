@@ -41,8 +41,11 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
                 setReplyMessage(result.reply_message ?? 'Thanks, your message has been sent.');
                 setContactCooldown();
                 setSubmitted(true);
+            } else {
+                setErrorMessage(result.reply_message ?? 'Your message could not be sent. Please check your details and try again.');
             }
         } catch (error) {
+            // Network failure, or no / invalid response from the server at all, Note happens when viewing de build of site with no serve bin
             console.error('Failed to send message:', error);
             setErrorMessage(error instanceof Error ? error.message : 'Unable to send message. Please try again.');
         } finally {
@@ -63,6 +66,7 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
         {replyMessage && <p className="contact-status contact-status-success" role="status" aria-live="polite">{replyMessage}</p>}
         {errorMessage && <p className="contact-status contact-status-error" role="alert">{errorMessage}</p>}
     </form>
-</section> }
+    </section>
+}
 
 export function Footer() { return <footer className="footer section-wrap"><span>© 2026 {profile.name}</span><span>Designed & built with intention.</span><a href="#about">Back to top ↑</a></footer> }
