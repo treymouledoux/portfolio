@@ -32,16 +32,19 @@ fn validate(form: &ContactForm) -> Result<(), &'static str> {
     if form.name.trim().is_empty() {
         return Err("Please enter your name.");
     }
-    if form.name.len() > 100 {
+    if form.name.len() > 50 {
         return Err("Name is too long.");
     }
     let email = form.email.trim();
-    if !email.contains('@') || !email.contains('.') || email.len() > 254 {
+    if !email.contains('@') || !email.contains('.') || email.len() > 254 || email.len() < 5 {
         return Err("Please enter a valid email address.");
     }
     let msg = form.message.trim();
     if msg.is_empty() {
         return Err("Please enter a message.");
+    }
+    if msg.len() < 100 {
+        return Err("Message is too short, please add a bit more information about your request.");
     }
     if msg.len() > 5000 {
         return Err("Message is too long (5000 characters max).");
@@ -63,7 +66,7 @@ async fn save_submission(form: &ContactForm) -> std::io::Result<()> {
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("submissions.jsonl")
+        .open("submissions.json")//TODO: Add some sort of submission forwarding thing for easier receiving
         .await?;
     file.write_all(line.as_bytes()).await?;
     Ok(())
@@ -89,11 +92,12 @@ async fn handle_contact_form_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ContactResponse {
                 success: false,
-                reply_message: "Something went wrong on our end — please try again.".to_owned(),
+                reply_message: "Something went wrong on our end, please try again.".to_owned(),
             }),
         );
     }
 
+    // Debug line, unviewable in normal circumstances
     println!("New message from: {} ({})", payload.name, payload.email);
 
     (
