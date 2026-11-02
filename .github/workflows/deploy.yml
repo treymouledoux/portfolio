@@ -13,7 +13,7 @@ permissions:
 env:
   TARGET: aarch64-unknown-linux-gnu   # Pi Zero 2 W (64-bit)
   BIN_NAME: portfolio-serve           # Cargo package name
-  REMOTE_DIR: /mnt/external/portfolio-deployment
+  REMOTE_DIR: /home/trey/portfolio-deployment
 
 jobs:
   build-and-deploy:
@@ -91,14 +91,17 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEVICE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      # ---------- STOP (release the running binary so scp can overwrite it) ----------
-      - name: Stop the service before copying
+      # ---------- PREPARE & STOP (create the destination and release the binary) ----------
+      - name: Prepare deployment directory and stop the service
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEVICE_HOST }}
           username: ${{ secrets.DEVICE_USERNAME }}
           key: ${{ secrets.DEVICE_SSH_KEY }}
           script: |
+            set -e
+            mkdir -p "${{ env.REMOTE_DIR }}"
+
             # Stop the running server so its binary isn't locked/busy when scp
             # overwrites it. `|| true` so a first-ever deploy (no unit yet) won't fail.
             sudo systemctl stop portfolio.service || true

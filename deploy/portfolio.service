@@ -9,8 +9,8 @@ Type=simple
 User=trey
 # main.rs uses ServeDir::new("assets") with a RELATIVE path, so the process must
 # run from the directory that contains `assets/`. This is that directory.
-WorkingDirectory=/mnt/external/portfolio-deployment
-ExecStart=/mnt/external/portfolio-deployment/portfolio-serve
+WorkingDirectory=/home/trey/portfolio-deployment
+ExecStart=/home/trey/portfolio-deployment/portfolio-serve
 
 # Restart automatically on crash or reboot
 Restart=always
