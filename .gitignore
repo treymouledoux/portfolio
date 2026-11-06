@@ -3,3 +3,9 @@ portfolio-serve/target
 portfolio-static/node_modules
 portfolio-static/.next
 portfolio-static/out
+
+# Runtime submissions must never be committed or served as static files.
+portfolio-serve/data/
+data/
+submissions.json
+submissions.jsonl
