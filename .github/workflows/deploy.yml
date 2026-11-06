@@ -10,6 +10,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: portfolio-production
+  cancel-in-progress: false
+
 env:
   TARGET: aarch64-unknown-linux-gnu   # Pi Zero 2 W (64-bit)
   BIN_NAME: portfolio-serve           # Cargo package name
@@ -41,6 +45,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build
+          node ../scripts/precompress.mjs out
 
       # ---------- BUILD RUST (cross-compiled on the x86 runner) ----------
       - name: Install Rust toolchain
@@ -59,11 +64,19 @@ jobs:
           workspaces: portfolio-serve
           key: ${{ env.TARGET }}
 
+      - name: Check and test backend
+        working-directory: portfolio-serve
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          python3 ../scripts/test-deployment.py
+
       - name: Cross-compile release binary
         working-directory: portfolio-serve
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release --target ${{ env.TARGET }} --bin ${{ env.BIN_NAME }}
+        run: cargo build --locked --release --target ${{ env.TARGET }} --bin ${{ env.BIN_NAME }}
 
       - name: Stage artifacts for upload
         run: |
@@ -73,8 +86,10 @@ jobs:
           # The systemd units
           cp deploy/portfolio.service stage/
           cp deploy/cloudflared.service stage/
+          cp deploy/activate-release.sh stage/
           # Copy the compiled Next.js static output (out/) into assets/ next to the binary
           cp -r portfolio-static/out stage/assets
+          (cd stage && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
       # ---------- CONNECT ----------
       - name: Connect to Tailscale
@@ -91,52 +106,24 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEVICE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      # ---------- PREPARE & STOP (create the destination and release the binary) ----------
-      - name: Prepare deployment directory and stop the service
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.DEVICE_HOST }}
-          username: ${{ secrets.DEVICE_USERNAME }}
-          key: ${{ secrets.DEVICE_SSH_KEY }}
-          script: |
-            set -e
-            mkdir -p "${{ env.REMOTE_DIR }}"
-
-            # Stop the running server so its binary isn't locked/busy when scp
-            # overwrites it. `|| true` so a first-ever deploy (no unit yet) won't fail.
-            sudo systemctl stop portfolio.service || true
-
-      # ---------- SHIP (copy prebuilt artifacts; the Pi never compiles) ----------
-      - name: Copy artifacts to the Pi
+      - name: Upload complete release while current site stays online
+        env:
+          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
+          DEVICE_USERNAME: ${{ secrets.DEVICE_USERNAME }}
+          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -r \
-            stage/* \
-            ${{ secrets.DEVICE_USERNAME }}@${{ secrets.DEVICE_HOST }}:${{ env.REMOTE_DIR }}/
+          set -euo pipefail
+          remote="$DEVICE_USERNAME@$DEVICE_HOST"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$remote" \
+            "mkdir -p '$REMOTE_DIR/releases/$RELEASE_ID'"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -r stage/. \
+            "$remote:$REMOTE_DIR/releases/$RELEASE_ID/"
 
-      # ---------- INSTALL & RUN (on the Pi) ----------
-      - name: Install and restart services on the Pi
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.DEVICE_HOST }}
-          username: ${{ secrets.DEVICE_USERNAME }}
-          key: ${{ secrets.DEVICE_SSH_KEY }}
-          script: |
-            set -e
-            cd ${{ env.REMOTE_DIR }}
-
-            chmod +x ${{ env.BIN_NAME }}
-
-            # Install/refresh both systemd units
-            sudo cp portfolio.service /etc/systemd/system/portfolio.service
-            sudo cp cloudflared.service /etc/systemd/system/cloudflared.service
-            sudo systemctl daemon-reload
-            sudo systemctl enable portfolio.service cloudflared.service
-
-            # Service was stopped before the copy, so this starts it fresh on the
-            # new binary. `restart` also covers the case where it's somehow still up.
-            sudo systemctl restart portfolio.service
-            sudo systemctl restart cloudflared.service
-
-            sleep 2
-            sudo systemctl --no-pager --full status portfolio.service || true
-            sudo systemctl --no-pager --full status cloudflared.service || true
+      - name: Activate release with health check and rollback
+        env:
+          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
+          DEVICE_USERNAME: ${{ secrets.DEVICE_USERNAME }}
+          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$DEVICE_USERNAME@$DEVICE_HOST" \
+            "bash '$REMOTE_DIR/releases/$RELEASE_ID/activate-release.sh' '$REMOTE_DIR' '$RELEASE_ID'"

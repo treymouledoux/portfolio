@@ -22,7 +22,6 @@ export const profile = {
   role: 'Software developer',
   tagline: 'Systems, small experiments, and software I actually use.',
   bio: 'I work mostly in Rust and Python, with projects that range from keyboard lighting to programming languages. I like understanding how something works, taking it apart, and making it do something useful.',
-  email: 'trey.mouledoux@icloud.com',
   location: 'Nashville, Tennessee',
   linkedin: 'https://www.linkedin.com/in/trey-mouledoux/',
 }

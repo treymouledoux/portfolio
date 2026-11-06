@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { ArrowDown, ArrowUpRight, Check, CodeXml, Mail } from 'lucide-react'
+import { ArrowDown, ArrowUpRight, Check, CodeXml } from 'lucide-react'
 import { experience, profile, projects, skills, socials } from '@/lib/portfolio-data'
 import { setContactCooldown, submitContactForm, validateContactForm, type ContactFormData } from '@/lib/contact'
 
@@ -144,8 +144,7 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
       <div className="contact-grid">
         <div className="contact-copy">
           <h3>Have something<br />in mind?</h3>
-          <p>For work, a project, or a question about something I built. Send a note here, or email me directly.</p>
-          <a className="email-link" href={`mailto:${profile.email}`}><Mail size={17} />{profile.email}<ArrowUpRight size={15} /></a>
+          <p>For work, a project, or a question about something I built. Send a note using the form below.</p>
           <div className="social-list">{socials.map((social) => <a href={social.href} key={social.label}>{social.label}<ArrowUpRight size={14} /></a>)}</div>
         </div>
         <form className="contact-form" onSubmit={handleFormSubmit} aria-label="Send Trey a message">
@@ -158,7 +157,7 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
             <p id="message-hint" className="form-hint">A little detail helps: 100–5,000 characters.</p>
             <button className={`button button-dark ${submitted ? 'is-submitted' : ''}`} type="submit">{submitted ? <>Message sent<Check size={16} /></> : submitting ? 'Sending…' : <>Send message<ArrowUpRight size={16} /></>}</button>
           </fieldset>
-          {submitted && !replyMessage && <p className="contact-status" role="status">Thanks for reaching out. You can send another message one hour after your previous submission, or email me directly.</p>}
+          {submitted && !replyMessage && <p className="contact-status" role="status">Thanks for reaching out. You can send another message one hour after your previous submission.</p>}
           {replyMessage && <p className="contact-status contact-status-success" role="status">{replyMessage}</p>}
           {errorMessage && <p className="contact-status contact-status-error" role="alert">{errorMessage}</p>}
         </form>
