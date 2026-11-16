@@ -11,6 +11,7 @@ ExecStart=/home/trey/portfolio-deployment/current/portfolio-serve
 Environment=PORTFOLIO_BIND=127.0.0.1:6050
 Environment=PORTFOLIO_DATA_DIR=/home/trey/portfolio-deployment/data
 Environment=PORTFOLIO_TRUST_CLOUDFLARE=true
+LoadCredential=portfolio-contact-smtp.json
 UMask=0077
 Restart=on-failure
 RestartSec=3

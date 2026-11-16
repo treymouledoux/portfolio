@@ -1,18 +1,32 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
+const title = 'Trey Mouledoux — Software Developer'
 const description = 'Trey Mouledoux is a software developer and computer science student in Tennessee. Rust, Python, systems programming, and open-source projects.'
+const previewImage = {
+  url: '/social-preview.png',
+  width: 1200,
+  height: 630,
+  alt: 'Trey Mouledoux, software developer',
+}
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://treymouledoux.me'),
-  title: 'Trey Mouledoux — Software Developer',
+  title,
   description,
   openGraph: {
-    title: 'Trey Mouledoux — Software Developer',
+    title,
     description,
     type: 'website',
     url: 'https://treymouledoux.me',
     locale: 'en_US',
+    images: [previewImage],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title,
+    description,
+    images: [previewImage],
   },
   icons: {
     icon: [

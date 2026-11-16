@@ -195,7 +195,6 @@ img { display: block; max-width: 100%; }
 .contact-form input:focus, .contact-form textarea:focus { border-color: var(--accent); }
 .contact-form fieldset:disabled input, .contact-form fieldset:disabled textarea { opacity: .6; }
 .contact-form .button { align-self: flex-start; }
-.form-hint { margin: -12px 0 0; color: var(--muted-foreground); font-size: 10px; }
 .contact-status { margin: 16px 0 0; font-size: 13px; line-height: 1.7; }
 .contact-status-success { color: var(--accent); }
 .contact-status-error { color: #a33b2b; }

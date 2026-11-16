@@ -17,7 +17,7 @@ export function validateContactForm(data: ContactFormData): string | null {
         return 'Please enter a valid email address.'
     }
     const message = data.message.trim()
-    if (message.length < 100) return 'Please add a little more detail (at least 100 characters).'
+    if (!message) return 'Please enter a message.'
     if (message.length > 5000) return 'Message is too long (5,000 characters max).'
     return null
 }

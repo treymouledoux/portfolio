@@ -30,7 +30,7 @@ The production unit enables Cloudflare header trust because the local cloudflare
 
 ## HTTP behavior
 
-- `/github`, `/instagram`, `/linkedin`: temporary (307) redirects, so profile destinations can change without permanent browser caching.
+- `/github`, `/instagram`, and `/linkedin` use temporary (307) redirects. To change a profile destination, edit [`src/socials.rs`](src/socials.rs) and redeploy.
 - `/resume`: serves `public/resume.pdf` inline as a PDF. Replace that file and rebuild to update it; `/resume.pdf` also works.
 - `/_next/static/*`: successful hashed assets are immutable for one year.
 - HTML and resume: `no-cache` (revalidate before reuse); ordinary images/assets: one hour; API, health, redirects and errors: `no-store`.
@@ -38,6 +38,25 @@ The production unit enables Cloudflare header trust because the local cloudflare
 - `/api/contact`: maximum 64 KiB JSON body, five attempts per IP per minute, and one successful submission per IP per hour. Returns JSON errors and `Retry-After` for HTTP 429. Shared public IPs share limits. Limits are in-memory, reset on process restart, and track at most 4,096 clients; additional clients receive 503 until entries expire.
 - Submissions are serialized through one writer to `submissions.jsonl`, flushed and synced before success. A write failure marks storage unhealthy until restart, avoiding additional appends to a potentially partial record. Inspect/repair the last record before restarting after a disk error. Logs omit submission names, addresses, and messages.
 - `/healthz`: 200 while storage is healthy; 503 after a persistence failure. SIGTERM/Ctrl-C drain active requests; systemd allows 30 seconds before forced termination.
+
+## Contact email
+
+To receive a copy of each new contact submission, create `/etc/credstore/portfolio-contact-smtp.json` on the deployment host with owner `root` and mode `0600`. For iCloud SMTP, use your full iCloud address for `username` and `from`, set `to` to the address where you want to receive messages, and generate an [Apple app-specific password](https://support.apple.com/en-us/102654).
+
+```json
+{
+  "host": "smtp.mail.me.com",
+  "port": 587,
+  "username": "sender@example.com",
+  "password": "app-specific password",
+  "from": "sender@example.com",
+  "to": "owner@example.com"
+}
+```
+
+After deploying the updated unit, restart it with `sudo systemctl restart portfolio.service` to load the private credentials. Submit a short test message on the site and check your inbox.
+
+The server saves the submission before attempting email delivery over STARTTLS. A failed or timed-out email attempt is logged without contact details. The submission stays in `submissions.jsonl`.
 
 ## Deployment and rollback
 

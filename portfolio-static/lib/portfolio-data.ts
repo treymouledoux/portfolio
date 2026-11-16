@@ -23,7 +23,6 @@ export const profile = {
   tagline: 'Systems, small experiments, and software I actually use.',
   bio: 'I work mostly in Rust and Python, with projects that range from keyboard lighting to programming languages. I like understanding how something works, taking it apart, and making it do something useful.',
   location: 'Nashville, Tennessee',
-  linkedin: 'https://www.linkedin.com/in/trey-mouledoux/',
 }
 
 export const skills = [
@@ -83,11 +82,11 @@ export const experience: Experience[] = [
   },
 ]
 
-export const socials = [
-  { label: 'GitHub', href: 'https://github.com/treymouledoux' },
-  { label: 'LinkedIn', href: profile.linkedin },
-  { label: 'Instagram', href: 'https://www.instagram.com/treymouledoux/' },
-]
+export const socials = {
+  github: { label: 'GitHub', href: '/github' },
+  linkedin: { label: 'LinkedIn', href: '/linkedin' },
+  instagram: { label: 'Instagram', href: '/instagram' },
+}
 
 export const navItems = [
   { label: 'Work', href: '#projects' },

@@ -1,3 +1,6 @@
+mod contact_mail;
+mod socials;
+
 use axum::{
     Json, Router,
     extract::{ConnectInfo, DefaultBodyLimit, State, rejection::JsonRejection},
@@ -7,6 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::Utc;
+use contact_mail::ContactMailer;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -64,6 +68,7 @@ struct Store {
 struct AppState {
     store: Arc<Mutex<Store>>,
     trust_cloudflare: bool,
+    mailer: Option<Arc<ContactMailer>>,
 }
 
 fn reply(status: StatusCode, message: impl Into<String>) -> Response {
@@ -115,11 +120,11 @@ fn validate(form: &ContactForm) -> Result<(), &'static str> {
     {
         return Err("Please enter a valid email address.");
     }
-    let length = form.message.trim().encode_utf16().count();
-    if length < 100 {
-        return Err("Message is too short, please add a bit more information about your request.");
+    let message = form.message.trim();
+    if message.is_empty() {
+        return Err("Please enter a message.");
     }
-    if length > 5000 {
+    if message.encode_utf16().count() > 5000 {
         return Err("Message is too long (5000 characters max).");
     }
     Ok(())
@@ -230,7 +235,11 @@ async fn contact(
     if let Some(client) = store.clients.get_mut(&ip) {
         client.last_success = Some(Instant::now());
     }
+    drop(store);
     println!("Contact submission saved");
+    if let Some(mailer) = &state.mailer {
+        mailer.notify(&record).await;
+    }
     reply(
         StatusCode::OK,
         format!("Thanks {}, we'll get back to you soon!", form.name.trim()),
@@ -293,15 +302,15 @@ fn app(assets: &Path, state: AppState) -> Router {
         .route("/healthz", get(health))
         .route(
             "/github",
-            get(|| async { Redirect::temporary("https://github.com/treymouledoux") }),
+            get(|| async { Redirect::temporary(socials::GITHUB) }),
         )
         .route(
             "/instagram",
-            get(|| async { Redirect::temporary("https://www.instagram.com/treymouledoux/") }),
+            get(|| async { Redirect::temporary(socials::INSTAGRAM) }),
         )
         .route(
             "/linkedin",
-            get(|| async { Redirect::temporary("https://www.linkedin.com/in/trey-mouledoux/") }),
+            get(|| async { Redirect::temporary(socials::LINKEDIN) }),
         )
         .route_service("/resume", ServeFile::new(assets.join("resume.pdf")))
         .fallback_service(
@@ -338,6 +347,7 @@ async fn open_state(data: &Path, trust_cloudflare: bool) -> std::io::Result<AppS
             clients: HashMap::new(),
         })),
         trust_cloudflare,
+        mailer: None,
     })
 }
 async fn shutdown_signal() {
@@ -374,7 +384,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !assets.join("index.html").is_file() || !assets.join("resume.pdf").is_file() {
         return Err("assets must contain index.html and resume.pdf".into());
     }
-    let state = open_state(&data, trust_cloudflare).await?;
+    let mut state = open_state(&data, trust_cloudflare).await?;
+    match ContactMailer::load() {
+        Ok(mailer) => state.mailer = mailer.map(Arc::new),
+        Err(_) => {
+            eprintln!("Contact email is disabled because its configuration could not be loaded")
+        }
+    }
     let listener = TcpListener::bind(bind).await?;
     println!("Portfolio listening on {}", listener.local_addr()?);
     axum::serve(

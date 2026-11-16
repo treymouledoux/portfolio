@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { ArrowDown, ArrowUpRight, Check, CodeXml } from 'lucide-react'
+import { ArrowDown, ArrowUpRight, Check, CodeXml, FileText } from 'lucide-react'
 import { experience, profile, projects, skills, socials } from '@/lib/portfolio-data'
 import { setContactCooldown, submitContactForm, validateContactForm, type ContactFormData } from '@/lib/contact'
 
@@ -24,7 +24,7 @@ export function Hero() {
         <p className="hero-sub">{profile.tagline}</p>
         <div className="hero-actions">
           <a className="button button-dark" href="#projects">Explore my work <ArrowDown size={16} /></a>
-          <a className="button button-quiet" href="https://github.com/treymouledoux"><CodeXml size={16} />GitHub <ArrowUpRight size={14} /></a>
+          <a className="button button-quiet" href="/resume"><FileText size={16} />View résumé <ArrowUpRight size={14} /></a>
         </div>
       </div>
       <aside className="hero-notes" aria-label="What I am doing now">
@@ -75,7 +75,7 @@ export function About() {
           <p className="about-lede">{profile.bio}</p>
           <p>I started building software before college. Along the way, I spent four years teaching kids to code and three years competing in CyberPatriot. Both taught me to slow down, understand the problem, and explain the solution.</p>
           <p>I also run a homelab and self-host services I use. Deploying something and keeping it running has been its own education.</p>
-          <a className="text-link" href={profile.linkedin}>More on LinkedIn <ArrowUpRight size={15} /></a>
+          <a className="text-link" href={socials.linkedin.href}>More on LinkedIn <ArrowUpRight size={15} /></a>
         </div>
         <div className="about-details">
           <div className="education-note"><span className="eyebrow">Currently at MTSU</span><h3>B.S. Computer Science</h3><p>Cybersecurity concentration<br />2026–2030, expected<br />ISA Cyber Club member</p></div>
@@ -145,7 +145,7 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
         <div className="contact-copy">
           <h3>Have something<br />in mind?</h3>
           <p>For work, a project, or a question about something I built. Send a note using the form below.</p>
-          <div className="social-list">{socials.map((social) => <a href={social.href} key={social.label}>{social.label}<ArrowUpRight size={14} /></a>)}</div>
+          <div className="social-list">{Object.values(socials).map((social) => <a href={social.href} key={social.label}>{social.label}<ArrowUpRight size={14} /></a>)}</div>
         </div>
         <form className="contact-form" onSubmit={handleFormSubmit} aria-label="Send Trey a message">
           <fieldset disabled={submitted || submitting}>
@@ -153,8 +153,7 @@ export function Contact({ submitted, setSubmitted }: { submitted: boolean; setSu
               <label htmlFor="contact-name">Name<input id="contact-name" required name="name" autoComplete="name" maxLength={50} placeholder="Your name" /></label>
               <label htmlFor="contact-email">Email<input id="contact-email" required type="email" name="email" autoComplete="email" maxLength={254} placeholder="you@example.com" /></label>
             </div>
-            <label htmlFor="contact-message">Message<textarea id="contact-message" required name="message" rows={5} minLength={100} maxLength={5000} aria-describedby="message-hint" placeholder="What are you working on?" /></label>
-            <p id="message-hint" className="form-hint">A little detail helps: 100–5,000 characters.</p>
+            <label htmlFor="contact-message">Message<textarea id="contact-message" required name="message" rows={5} maxLength={5000} placeholder="What are you working on?" /></label>
             <button className={`button button-dark ${submitted ? 'is-submitted' : ''}`} type="submit">{submitted ? <>Message sent<Check size={16} /></> : submitting ? 'Sending…' : <>Send message<ArrowUpRight size={16} /></>}</button>
           </fieldset>
           {submitted && !replyMessage && <p className="contact-status" role="status">Thanks for reaching out. You can send another message one hour after your previous submission.</p>}

@@ -44,15 +44,16 @@ fn request(method: &str, path: &str, body: String, ip: &str) -> Request<Body> {
         .unwrap()
 }
 fn valid() -> String {
-    serde_json::json!({"name":"Trey Test","email":"test@example.test","message":"A useful test message. ".repeat(8)}).to_string()
+    serde_json::json!({"name":"Trey Test","email":"test@example.test","message":"Quick note."})
+        .to_string()
 }
 #[tokio::test]
 async fn redirects_resume_and_cache_policies() {
     let (_temp, _state, router) = fixture().await;
     for (path, target) in [
-        ("/github", "https://github.com/treymouledoux"),
-        ("/instagram", "https://www.instagram.com/treymouledoux/"),
-        ("/linkedin", "https://www.linkedin.com/in/trey-mouledoux/"),
+        ("/github", socials::GITHUB),
+        ("/instagram", socials::INSTAGRAM),
+        ("/linkedin", socials::LINKEDIN),
     ] {
         let response = router
             .clone()
@@ -61,6 +62,7 @@ async fn redirects_resume_and_cache_policies() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
         assert_eq!(response.headers()[header::LOCATION], target);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }
     for (path, policy) in [
         ("/", "no-cache"),
@@ -160,7 +162,7 @@ async fn rejects_invalid_and_large_json_without_writing() {
         ("{broken".to_owned(), StatusCode::BAD_REQUEST),
         ("{}".to_owned(), StatusCode::UNPROCESSABLE_ENTITY),
         (
-            serde_json::json!({"name":"A","email":"a@b.c","message":"short"}).to_string(),
+            serde_json::json!({"name":"A","email":"a@b.c","message":"   "}).to_string(),
             StatusCode::BAD_REQUEST,
         ),
         (
