@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Contact messages</title>
+  <style>
+    :root { color-scheme: dark; font: 1rem/1.55 system-ui, sans-serif; background: #0b1014; color: #eff4f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: .5rem; }
+    main { max-width: 62rem; margin: auto; }
+    article { margin-bottom: .85rem; padding: clamp(1rem, 4vw, 1.75rem); border: 1px solid #34414a; border-radius: 1rem; background: #121b21; overflow-wrap: anywhere; }
+    h1 { margin: .4rem 0 1.25rem; font-size: clamp(2rem, 7vw, 3.8rem); letter-spacing: -.055em; line-height: 1.1; }
+    h2 { margin: 0; font-size: 1.1rem; }
+    .meta { margin: .25rem 0; color: #b1bec6; font-size: .85rem; }
+    .message { margin: 1rem 0 0; white-space: pre-wrap; }
+    nav { display: flex; gap: 1.5rem; flex-wrap: wrap; padding: .4rem 0; }
+    a { color: #96e5d4; text-underline-offset: .2em; }
+    :focus-visible { outline: 2px solid currentColor; outline-offset: .2rem; }
+  </style>
+</head>
+<body><main><h1>Contact messages</h1>{{ENTRIES}}</main></body>
+</html>

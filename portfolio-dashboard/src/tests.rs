@@ -13,6 +13,7 @@ fn fixture(pi_machine: Option<String>) -> Router {
     });
     app(App {
         viewers: Arc::new(parse_viewers(OWNER).unwrap()),
+        inbox_readers: Arc::new(HashSet::new()),
         status,
         pi_ssh_user: pi_machine.as_ref().map(|_| SSH_USER.to_owned()),
         pi_machine,
@@ -116,6 +117,7 @@ async fn every_private_route_and_error_requires_one_trusted_viewer() {
         "/dashboard.css",
         "/api/status",
         "/embed/status",
+        "/messages",
         "/missing",
     ] {
         for headers in [
@@ -253,4 +255,69 @@ async fn frames_are_limited_to_the_two_statuses_and_exact_parent() {
         call("POST", "/embed/status", &headers).await.headers()[header::X_FRAME_OPTIONS],
         "DENY"
     );
+}
+
+#[tokio::test]
+async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation() {
+    let (_, status) = watch::channel(Status {
+        website: Website::Healthy,
+        jetkvm: JetKvm::Reachable,
+    });
+    let state = App {
+        viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
+        inbox_readers: Arc::new(parse_viewers("owner@example.test,outsider@example.test").unwrap()),
+        status,
+        pi_machine: None,
+        pi_ssh_user: None,
+    };
+    // Use a fixed response to test the access boundary without opening any host message data.
+    let test_app = Router::new()
+        .route("/messages", get(|| async { Html("fixture") }))
+        .layer(middleware::from_fn_with_state(state, protect));
+    for (login, mode, dest, expected) in [
+        (OWNER, "navigate", "iframe", StatusCode::OK),
+        (OWNER, "cors", "empty", StatusCode::FORBIDDEN),
+        (OWNER, "no-cors", "image", StatusCode::FORBIDDEN),
+        (
+            "viewer@example.test",
+            "navigate",
+            "iframe",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "outsider@example.test",
+            "navigate",
+            "iframe",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let request = Request::builder()
+            .uri("/messages?before=100")
+            .header("tailscale-user-login", login)
+            .header("sec-fetch-site", "cross-site")
+            .header("sec-fetch-mode", mode)
+            .header("sec-fetch-dest", dest)
+            .body(Body::empty())
+            .unwrap();
+        let response = test_app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), expected);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        assert!(
+            !response
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+        );
+        if expected == StatusCode::OK {
+            assert_eq!(
+                response.headers()[header::CONTENT_SECURITY_POLICY],
+                INBOX_CSP
+            );
+            assert!(INBOX_CSP.contains("frame-ancestors https://treymouledoux.me; sandbox;"));
+        } else {
+            assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+        }
+    }
 }

@@ -104,6 +104,7 @@ def check_caddy(work, binary):
             raise ValueError("Fixture did not replace the production listener and upstream")
         (work / "static").mkdir()
         (work / "static/landing.html").write_bytes((HERE / "landing.html").read_bytes())
+        (work / "static/messages.html").write_bytes((HERE / "messages.html").read_bytes())
         config = work / "Caddyfile"
         config.write_text(cfg)
         adapted = json.loads(subprocess.check_output([binary, "adapt", "--config", config, "--adapter", "caddyfile"]))
@@ -139,9 +140,14 @@ def check_caddy(work, binary):
             status, headers, body = request(path)
             assert status == 200 and body == (HERE / "landing.html").read_bytes()
             assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
+        for path in ("/dashboard/messages", "/dashboard/messages/"):
+            status, headers, body = request(path)
+            assert status == 200 and body == (HERE / "messages.html").read_bytes()
+            assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
         assert request("/dashboard", method="HEAD")[2] == b""
         assert not public.seen
         for path, peer, method in [("/dashboard?example=1", "::1", "GET"),
+                                   ("/dashboard/messages", "::1", "GET"),
                                    ("/dashboard/api?example=1", "127.0.0.1", "POST")]:
             status, headers, _ = request(path, peer, method, b"test" if method == "POST" else None)
             seen_method, seen_path, seen_headers, seen_body = public.seen.pop()

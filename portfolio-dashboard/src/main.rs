@@ -1,3 +1,5 @@
+mod inbox;
+
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -23,8 +25,9 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(4);
 const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-mzNP8FEu/b4x/8P9603HcDCzhyIrpSIdsEbLJYCyoZY='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-wPhQPM94WdFhh0fDNsbhhmFNAtX0MOYyOjT0N0aX/3s='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-frwnsDNi7k5Sd6J92gjF05PI/gDtXTTagtyLy79PJJI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -57,6 +60,7 @@ struct Snapshot {
 #[derive(Clone)]
 struct App {
     viewers: Arc<HashSet<String>>,
+    inbox_readers: Arc<HashSet<String>>,
     status: watch::Receiver<Status>,
     pi_machine: Option<String>,
     pi_ssh_user: Option<String>,
@@ -133,12 +137,14 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
-    let allowed = single_header(req.headers(), "tailscale-user-login")
-        .is_some_and(|login| app.viewers.contains(login));
+    let inbox = req.uri().path() == "/messages";
+    let allowed = single_header(req.headers(), "tailscale-user-login").is_some_and(|login| {
+        app.viewers.contains(login) && (!inbox || app.inbox_readers.contains(login))
+    });
     // A link from the portfolio may navigate to the home page. Once loaded,
     // its subresources and status calls must come from the private origin.
     let site = single_header(req.headers(), "sec-fetch-site");
-    let embedding = req.uri().path() == "/embed/status";
+    let embedding = inbox || req.uri().path() == "/embed/status";
     let navigation = (req.method() == Method::GET || req.method() == Method::HEAD)
         && single_header(req.headers(), "sec-fetch-mode") == Some("navigate")
         && (req.uri().path() == "/"
@@ -160,7 +166,7 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     if embed_document {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(EMBED_CSP),
+            HeaderValue::from_static(if inbox { INBOX_CSP } else { EMBED_CSP }),
         );
     } else {
         headers.insert(
@@ -218,6 +224,7 @@ fn app(state: App) -> Router {
     Router::new()
         .route("/", get(|| async { Html(include_str!("dashboard.html")) }))
         .route("/embed/status", get(embed))
+        .route("/messages", get(inbox::messages))
         .route(
             "/dashboard.css",
             get(|| async {
@@ -357,6 +364,11 @@ async fn serve(
     pi_machine: Option<String>,
     pi_ssh_user: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let inbox_readers = match env::var("DASHBOARD_INBOX_READERS") {
+        Ok(value) => parse_viewers(&value).map_err(|_| "invalid DASHBOARD_INBOX_READERS")?,
+        Err(env::VarError::NotPresent) => HashSet::new(),
+        Err(error) => return Err(error.into()),
+    };
     let listener = tokio::net::UnixListener::from_std(listener)?;
     let client = reqwest::Client::builder()
         .https_only(true)
@@ -373,6 +385,7 @@ async fn serve(
         listener,
         app(App {
             viewers: Arc::new(viewers),
+            inbox_readers: Arc::new(inbox_readers),
             status,
             pi_machine,
             pi_ssh_user,

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Messages · Tailnet dashboard</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #eff4f5;
+        background: #0b1014;
+        --muted: #b1bec6;
+        --line: #34414a;
+        --accent: #96e5d4;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        background-image: linear-gradient(#8fb9c307 1px, transparent 1px),
+                          linear-gradient(90deg, #8fb9c307 1px, transparent 1px),
+                          radial-gradient(ellipse at 85% 0, #172b2f, transparent 56%);
+        background-size: 44px 44px, 44px 44px, auto;
+      }
+      .wrap { width: min(100% - 2.5rem, 62rem); margin-inline: auto; }
+      header { border-bottom: 1px solid var(--line); }
+      .bar, .brand, nav { display: flex; align-items: center; gap: 1rem; }
+      .bar { justify-content: space-between; }
+      .bar { min-height: 4.5rem; flex-wrap: wrap; padding-block: .75rem; }
+      .brand { gap: .75rem; color: inherit; font-weight: 650; text-decoration: none; }
+      .monogram { display: grid; flex: none; place-items: center; color: var(--accent); }
+      .monogram {
+        width: 2.2rem; height: 2.2rem; border: 1px solid #60958d; border-radius: .55rem;
+        font: 700 1.1rem var(--mono); letter-spacing: -.1em; padding-right: .1em;
+      }
+      nav { gap: 1.25rem; }
+      nav a { padding-block: .65rem; color: var(--muted); font-size: .9rem; text-decoration: none; }
+      nav a[aria-current="page"], a:hover { color: var(--accent); }
+      :focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+      .inbox { display: block; width: 100%; height: calc(100dvh - 5rem); min-height: 24rem; border: 0; }
+      @media (max-width: 28rem) { .bar { row-gap: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span>Trey Mouledoux</a>
+        <nav aria-label="Dashboard">
+          <a href="/dashboard">Overview</a>
+          <a href="/dashboard/messages" aria-current="page">Messages</a>
+        </nav>
+      </div>
+    </header>
+    <main class="wrap">
+      <iframe class="inbox" title="Contact messages" sandbox="" referrerpolicy="no-referrer"
+        src="https://status.example.invalid:8443/messages"></iframe>
+    </main>
+  </body>
+</html>

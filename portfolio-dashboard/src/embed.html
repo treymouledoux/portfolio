@@ -6,35 +6,43 @@
     <meta name="referrer" content="no-referrer">
     <title>Tailnet service status</title>
     <style>
-      :root { color-scheme: dark; color: #eff4f5; background: #121b21; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      :root {
+        color-scheme: dark;
+        color: #eff4f5;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
       * { box-sizing: border-box; }
-      body { margin: 0; padding: clamp(1rem, 4vw, 1.75rem); }
-      h1 { margin: 0; font-size: 1.15rem; letter-spacing: -.025em; }
-      dl { margin: .45rem 0; }
-      .row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .35rem 1rem; padding: .9rem 0; border-bottom: 1px solid #34414a; }
-      dt { font-weight: 600; }
-      dt small { display: block; margin-top: .2rem; color: #b1bec6; font-size: .78rem; font-weight: 400; }
-      dd { margin: 0; font-size: .9rem; font-weight: 600; }
-      dd::before { content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .5rem; border-radius: 50%; background: #99a5ad; }
-      .good::before { background: #96e5d4; }
+      body { margin: 0; background: transparent; }
+      main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+      article { padding: clamp(1.25rem, 3.5vw, 2rem); border: 1px solid #34414a; border-radius: 1rem; background: #121b21; }
+      header, .reading { display: flex; align-items: center; gap: .75rem; }
+      header { justify-content: space-between; }
+      h2, p { margin: 0; }
+      h2 { font-size: 1rem; font-weight: 650; }
+      .protocol { color: #b1bec6; font: .75rem "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; }
+      .reading { margin: 2.4rem 0 .65rem; font-size: clamp(1.6rem, 4vw, 2.35rem); font-weight: 550; letter-spacing: -.045em; }
+      .reading::before { content: ""; flex: none; width: .65rem; height: .65rem; border-radius: 50%; background: #99a5ad; }
+      .good::before { background: #96e5d4; box-shadow: 0 0 0 4px #88d4c215; }
       .bad::before { background: #f6a383; }
-      p { margin: .8rem 0 0; font-size: .8rem; color: #b1bec6; }
+      .detail { color: #b1bec6; font-size: .9rem; line-height: 1.55; }
+      @media (max-width: 42rem) {
+        main { grid-template-columns: 1fr; }
+        .reading { margin-top: 1.6rem; }
+      }
     </style>
   </head>
   <body>
-    <main>
-      <h1>Service status</h1>
-      <dl>
-        <div class="row">
-          <dt>Portfolio website<small>HTTPS health check</small></dt>
-          <dd class="{{WEBSITE_TONE}}">{{WEBSITE_STATUS}}</dd>
-        </div>
-        <div class="row">
-          <dt>JetKVM<small>TCP reachability</small></dt>
-          <dd class="{{JETKVM_TONE}}">{{JETKVM_STATUS}}</dd>
-        </div>
-      </dl>
-      <p>Reload the page for the latest checks.</p>
+    <main aria-label="Service status">
+      <article>
+        <header><h2>Portfolio website</h2><span class="protocol">HTTPS</span></header>
+        <p class="reading {{WEBSITE_TONE}}">{{WEBSITE_STATUS}}</p>
+        <p class="detail">Checks the website’s health endpoint from the dashboard host.</p>
+      </article>
+      <article>
+        <header><h2>JetKVM</h2><span class="protocol">TCP</span></header>
+        <p class="reading {{JETKVM_TONE}}">{{JETKVM_STATUS}}</p>
+        <p class="detail">Checks whether the device accepts a TCP connection.</p>
+      </article>
     </main>
   </body>
 </html>
