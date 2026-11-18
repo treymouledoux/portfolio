@@ -6,8 +6,8 @@ use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, State, rejection::JsonRejection},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
-    response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::{any, get, post},
 };
 use chrono::Utc;
 use contact_mail::ContactMailer;
@@ -288,8 +288,28 @@ async fn response_headers(request: axum::extract::Request, next: Next) -> Respon
     }
     response
 }
+async fn dashboard_denied() -> impl IntoResponse {
+    // The hash allows only the literal stylesheet in dashboard-denied.html.
+    let headers = [
+        (
+            header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; style-src 'sha256-z1Dp+tiT8Thh8KvsrAUeldzTrwYl1def0juJTkK25p0='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        ),
+        (header::REFERRER_POLICY, "no-referrer"),
+        (header::X_FRAME_OPTIONS, "DENY"),
+        (header::HeaderName::from_static("x-robots-tag"), "noindex"),
+    ];
+    (
+        StatusCode::FORBIDDEN,
+        headers,
+        Html(include_str!("dashboard-denied.html")),
+    )
+}
 fn app(assets: &Path, state: AppState) -> Router {
     Router::new()
+        .route("/dashboard", any(dashboard_denied))
+        .route("/dashboard/", any(dashboard_denied))
+        .route("/dashboard/{*rest}", any(dashboard_denied))
         .route(
             "/api/contact",
             post(contact)

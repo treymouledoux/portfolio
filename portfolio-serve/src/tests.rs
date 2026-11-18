@@ -111,6 +111,50 @@ async fn redirects_resume_and_cache_policies() {
     );
 }
 #[tokio::test]
+async fn public_dashboard_is_always_forbidden() {
+    let (temp, _, router) = fixture().await;
+    let asset = temp.path().join("assets/dashboard/status.json");
+    std::fs::create_dir_all(asset.parent().unwrap()).unwrap();
+    std::fs::write(asset, "static fallback fixture").unwrap();
+    for (method, path) in [
+        ("GET", "/dashboard"),
+        ("HEAD", "/dashboard"),
+        ("GET", "/dashboard/"),
+        ("GET", "/dashboard/status.json?check=1"),
+        ("OPTIONS", "/dashboard"),
+        ("POST", "/dashboard/api/action"),
+        ("DELETE", "/dashboard/api/action"),
+    ] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("cf-connecting-ip", "100.64.0.1")
+            .header("tailscale-user-login", "owner@example.test")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{method} {path}");
+        let headers = response.headers();
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert_eq!(headers[header::CONTENT_TYPE], "text/html; charset=utf-8");
+        assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
+        assert!(
+            headers[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap()
+                .contains("default-src 'none'")
+        );
+        let body = to_bytes(response.into_body(), BODY_LIMIT).await.unwrap();
+        if method == "HEAD" {
+            assert!(body.is_empty());
+        } else {
+            assert_eq!(body.as_ref(), include_bytes!("dashboard-denied.html"));
+        }
+    }
+}
+#[tokio::test]
 async fn serves_precompressed_assets_and_identity() {
     let (_temp, _, router) = fixture().await;
     for (encoding, expected) in [
