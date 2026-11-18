@@ -22,8 +22,13 @@
     <h1>Dashboard</h1>
     <iframe title="Private service status" sandbox="" referrerpolicy="no-referrer"
       src="https://status.example.invalid:8443/embed/status"></iframe>
+    <p><a href="/dashboard">Refresh status</a></p>
+    <section aria-labelledby="remote-access">
+      <h2 id="remote-access">Raspberry Pi SSH</h2>
+      <p>Run this command in Terminal on your authorized Mac or PC. Your iPhone has read-only dashboard access.</p>
+      <code>ssh PI_SSH_USER@status.example.invalid</code>
+    </section>
     <nav aria-label="Dashboard links">
-      <a href="https://status.example.invalid:8443/" rel="noreferrer">Open private dashboard</a>
       <a href="/">Back to portfolio</a>
     </nav>
   </main>
