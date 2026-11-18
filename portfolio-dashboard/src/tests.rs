@@ -13,6 +13,8 @@ fn fixture(pi_machine: Option<String>) -> Router {
     });
     app(App {
         viewers: Arc::new(parse_viewers(OWNER).unwrap()),
+        inbox_admins: Arc::new(HashSet::new()),
+        admin_origin: None,
         inbox_readers: Arc::new(HashSet::new()),
         status,
         pi_ssh_user: pi_machine.as_ref().map(|_| SSH_USER.to_owned()),
@@ -265,6 +267,8 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
     });
     let state = App {
         viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
+        inbox_admins: Arc::new(HashSet::new()),
+        admin_origin: None,
         inbox_readers: Arc::new(parse_viewers("owner@example.test,outsider@example.test").unwrap()),
         status,
         pi_machine: None,
@@ -315,9 +319,134 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
                 response.headers()[header::CONTENT_SECURITY_POLICY],
                 INBOX_CSP
             );
-            assert!(INBOX_CSP.contains("frame-ancestors https://treymouledoux.me; sandbox;"));
+            assert!(INBOX_CSP.contains("frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox;"));
         } else {
             assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         }
     }
+}
+
+#[tokio::test]
+async fn destructive_actions_require_roles_private_origin_and_same_origin_form() {
+    const ORIGIN: &str = "https://pi.example.ts.net:8443";
+    let (_, status) = watch::channel(Status {
+        website: Website::Healthy,
+        jetkvm: JetKvm::Reachable,
+    });
+    let router = app(App {
+        viewers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
+        inbox_readers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
+        inbox_admins: Arc::new(parse_viewers(OWNER).unwrap()),
+        admin_origin: Some(ORIGIN.to_owned()),
+        status,
+        pi_machine: None,
+        pi_ssh_user: None,
+    });
+    // A malformed receipt verifies which callers reach the form handler without contacting the broker.
+    for (user, origin, site, dest, expected) in [
+        (
+            OWNER,
+            Some(ORIGIN),
+            Some("same-origin"),
+            "document",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "reader@example.test",
+            Some(ORIGIN),
+            Some("same-origin"),
+            "document",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            OWNER,
+            Some("https://treymouledoux.me"),
+            Some("same-origin"),
+            "document",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            OWNER,
+            None,
+            Some("same-origin"),
+            "document",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            OWNER,
+            Some("null"),
+            Some("same-origin"),
+            "document",
+            StatusCode::FORBIDDEN,
+        ),
+        (OWNER, Some(ORIGIN), None, "document", StatusCode::FORBIDDEN),
+        (
+            OWNER,
+            Some(ORIGIN),
+            Some("cross-site"),
+            "document",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            OWNER,
+            Some(ORIGIN),
+            Some("same-origin"),
+            "iframe",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let mut req = Request::builder()
+            .method("POST")
+            .uri(format!("/messages/action/delete/{}", "a".repeat(64)))
+            .header("tailscale-user-login", user)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("sec-fetch-dest", dest);
+        if let Some(ori) = origin {
+            req = req.header("origin", ori);
+        }
+        if let Some(site) = site {
+            req = req.header("sec-fetch-site", site);
+        }
+        let response = router
+            .clone()
+            .oneshot(req.body(Body::from("receipt=invalid")).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        if expected == StatusCode::BAD_REQUEST {
+            assert_eq!(
+                response.headers()[header::CONTENT_SECURITY_POLICY],
+                ACTION_CSP
+            );
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
+        }
+    }
+    for origin in [
+        "https://pi.example.ts.net",
+        "https://pi.example.ts.net:8443/",
+        "https://p.ts.net:8443",
+        "https://treymouledoux.me:8443",
+        "http://pi.example.ts.net:8443",
+        "https://pi.example.ts.net:8443@other:8443",
+    ] {
+        assert!(inbox_actions::origin(origin.to_owned()).is_err());
+    }
+    assert_eq!(inbox_actions::origin(ORIGIN.to_owned()).unwrap(), ORIGIN);
+}
+
+#[test]
+fn inbox_admin_forms_do_not_elevate_contact_markup_or_accept_non_hex_ids() {
+    for value in ["ABCDEF", &"A".repeat(64), &"1".repeat(63), &"x".repeat(64)] {
+        assert!(!inbox_actions::valid_hex(value, 64));
+    }
+    assert!(inbox_actions::valid_hex(&"a".repeat(64), 64));
+    assert!(!INBOX_CSP.contains("allow-forms") && !INBOX_CSP.contains("allow-scripts"));
+    assert!(
+        ACTION_CSP.contains("frame-ancestors 'none'") && ACTION_CSP.contains("form-action 'self'")
+    );
 }

@@ -62,3 +62,16 @@ article { padding: clamp(1.25rem, 3.5vw, 2rem); }
   .reading { margin-top: 1.6rem; }
   .console { align-items: flex-start; }
 }
+.inbox-action { max-width: 48rem; }
+.inbox-action h1 { font-size: clamp(2rem, 5vw, 3.6rem); margin-bottom: 1rem; }
+.inbox-action h2 { margin-top: 1rem; }
+.inbox-action article, .inbox-action pre, .inbox-action form { margin-block: 1.2rem; }
+.inbox-action .meta { color: var(--muted); font-size: .85rem; }
+.inbox-action article, .inbox-action pre { overflow-wrap: anywhere; }
+.inbox-action .message, .inbox-action pre { white-space: pre-wrap; }
+.inbox-action pre { padding: 1rem; background: #121b21; border-radius: .6rem; }
+.inbox-action form { display: grid; gap: .65rem; justify-items: start; }
+.inbox-action input { padding: .65rem; width: min(100%, 24rem); font: 1rem var(--mono); }
+.inbox-action .danger { background: #942e32; border-color: #e17d80; color: white; }
+.inbox-action .danger:hover { background: #ad353b; }
+.inbox-action a { color: var(--accent); }

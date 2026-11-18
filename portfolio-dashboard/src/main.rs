@@ -1,4 +1,5 @@
 mod inbox;
+mod inbox_actions;
 
 use axum::{
     Json, Router,
@@ -25,7 +26,8 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(4);
 const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-mzNP8FEu/b4x/8P9603HcDCzhyIrpSIdsEbLJYCyoZY='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-YwH1UcAmudMhhXi7pBrcQFrhe2CZ+Q7B3nQnryPEUQA='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-frwnsDNi7k5Sd6J92gjF05PI/gDtXTTagtyLy79PJJI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
@@ -61,6 +63,8 @@ struct Snapshot {
 struct App {
     viewers: Arc<HashSet<String>>,
     inbox_readers: Arc<HashSet<String>>,
+    inbox_admins: Arc<HashSet<String>>,
+    admin_origin: Option<String>,
     status: watch::Receiver<Status>,
     pi_machine: Option<String>,
     pi_ssh_user: Option<String>,
@@ -137,25 +141,37 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
-    let inbox = req.uri().path() == "/messages";
-    let allowed = single_header(req.headers(), "tailscale-user-login").is_some_and(|login| {
-        app.viewers.contains(login) && (!inbox || app.inbox_readers.contains(login))
+    let path = req.uri().path();
+    let inbox = path == "/messages";
+    let action = path == "/messages/delete-all" || path.starts_with("/messages/action/");
+    let login = single_header(req.headers(), "tailscale-user-login");
+    let allowed = login.is_some_and(|login| {
+        app.viewers.contains(login)
+            && (!(inbox || action) || app.inbox_readers.contains(login))
+            && (!action || (app.admin_origin.is_some() && app.inbox_admins.contains(login)))
     });
-    // A link from the portfolio may navigate to the home page. Once loaded,
-    // its subresources and status calls must come from the private origin.
     let site = single_header(req.headers(), "sec-fetch-site");
-    let embedding = inbox || req.uri().path() == "/embed/status";
+    let dest = single_header(req.headers(), "sec-fetch-dest");
+    let embedding = inbox || path == "/embed/status";
     let navigation = (req.method() == Method::GET || req.method() == Method::HEAD)
         && single_header(req.headers(), "sec-fetch-mode") == Some("navigate")
-        && (req.uri().path() == "/"
-            || (embedding && single_header(req.headers(), "sec-fetch-dest") == Some("iframe")));
+        && (path == "/"
+            || (embedding && dest == Some("iframe"))
+            || (action && dest == Some("document")));
     let foreign_request = req.headers().contains_key("sec-fetch-site")
         && !matches!(site, Some("same-origin" | "none"))
         && !navigation;
-    let mut response = if allowed && !foreign_request {
-        next.run(req).await
-    } else {
+    let blocked_action = action
+        && ((dest.is_some() && dest != Some("document"))
+            || (req.method() == Method::POST
+                && (site != Some("same-origin")
+                    || app.admin_origin.as_deref().is_none()
+                    || single_header(req.headers(), "origin") != app.admin_origin.as_deref())));
+    let denied = !allowed || foreign_request || blocked_action;
+    let mut response = if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
+    } else {
+        next.run(req).await
     };
     let embed_document = embedding && response.status().is_success();
     let headers = response.headers_mut();
@@ -171,8 +187,10 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     } else {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(if !allowed || foreign_request {
+            HeaderValue::from_static(if denied {
                 DENIAL_CSP
+            } else if action {
+                ACTION_CSP
             } else {
                 CSP
             }),
@@ -185,7 +203,11 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     }
     headers.insert(
         header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
+        HeaderValue::from_static(if action && !denied {
+            "same-origin"
+        } else {
+            "no-referrer"
+        }),
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
@@ -225,6 +247,13 @@ fn app(state: App) -> Router {
         .route("/", get(|| async { Html(include_str!("dashboard.html")) }))
         .route("/embed/status", get(embed))
         .route("/messages", get(inbox::messages))
+        .route("/messages/delete-all", get(inbox_actions::preview_all))
+        .route(
+            "/messages/action/{action}/{id}",
+            get(inbox_actions::preview_one)
+                .post(inbox_actions::commit)
+                .layer(axum::extract::DefaultBodyLimit::max(128)),
+        )
         .route(
             "/dashboard.css",
             get(|| async {
@@ -369,6 +398,16 @@ async fn serve(
         Err(env::VarError::NotPresent) => HashSet::new(),
         Err(error) => return Err(error.into()),
     };
+    let inbox_admins = match env::var("DASHBOARD_INBOX_ADMINS") {
+        Ok(value) => parse_viewers(&value).map_err(|_| "invalid DASHBOARD_INBOX_ADMINS")?,
+        Err(env::VarError::NotPresent) => HashSet::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let admin_origin = match env::var("DASHBOARD_ADMIN_ORIGIN") {
+        Ok(value) => Some(inbox_actions::origin(value)?),
+        Err(env::VarError::NotPresent) if inbox_admins.is_empty() => None,
+        Err(error) => return Err(error.into()),
+    };
     let listener = tokio::net::UnixListener::from_std(listener)?;
     let client = reqwest::Client::builder()
         .https_only(true)
@@ -386,6 +425,8 @@ async fn serve(
         app(App {
             viewers: Arc::new(viewers),
             inbox_readers: Arc::new(inbox_readers),
+            inbox_admins: Arc::new(inbox_admins),
+            admin_origin,
             status,
             pi_machine,
             pi_ssh_user,

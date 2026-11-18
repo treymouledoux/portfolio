@@ -1,5 +1,6 @@
 use super::*;
 use axum::extract::RawQuery;
+use ring::digest::{SHA256, digest};
 use serde::Deserialize;
 use std::{
     fs::OpenOptions,
@@ -21,8 +22,14 @@ struct Submission {
     message: String,
 }
 
-struct Page {
-    entries: Vec<Submission>,
+pub(super) struct Entry {
+    pub(super) id: String,
+    pub(super) end: u64,
+    data: Submission,
+}
+
+pub(super) struct Page {
+    pub(super) entries: Vec<Entry>,
     older: Option<u64>,
 }
 
@@ -69,7 +76,13 @@ fn read_page(mut file: impl Read + Seek, before: Option<u64>) -> io::Result<Page
         if line.len() > MAX_RECORD {
             return Err(invalid());
         }
-        entries.push(serde_json::from_slice(line).map_err(|_| invalid())?);
+        let hash = digest(&SHA256, line);
+        let id = hash.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        entries.push(Entry {
+            id,
+            end: start + cursor as u64,
+            data: serde_json::from_slice(line).map_err(|_| invalid())?,
+        });
         cursor = line_start;
     }
     let offset = start + cursor as u64;
@@ -90,21 +103,31 @@ fn escape(value: &str, output: &mut String) {
     }
 }
 
-fn render(page: Page, paginated: bool) -> String {
+pub(super) fn render_entry(entry: &Entry, html: &mut String, admin: bool) {
+    html.push_str("<article><h2 dir=\"auto\">");
+    escape(&entry.data.name, html);
+    html.push_str("</h2><p class=\"meta\" dir=\"auto\">");
+    escape(&entry.data.email, html);
+    html.push_str("</p><p class=\"meta\">");
+    escape(&entry.data.received_at, html);
+    html.push_str("</p><p class=\"message\" dir=\"auto\">");
+    escape(&entry.data.message, html);
+    html.push_str("</p>");
+    if admin {
+        html.push_str(&format!(r#"<a class="remove" href="/messages/action/delete/{}?end={}" target="_blank" rel="noopener noreferrer">Remove</a>"#, entry.id, entry.end));
+    }
+    html.push_str("</article>");
+}
+
+fn render(page: Page, paginated: bool, admin: bool) -> String {
     let mut html = String::new();
     if page.entries.is_empty() {
         html.push_str("<p>No messages yet.</p>");
+    } else if admin {
+        html.push_str(r#"<p class="bulk"><a class="remove" href="/messages/delete-all" target="_blank" rel="noopener noreferrer">Remove all messages</a></p>"#);
     }
-    for record in page.entries {
-        html.push_str("<article><h2 dir=\"auto\">");
-        escape(&record.name, &mut html);
-        html.push_str("</h2><p class=\"meta\" dir=\"auto\">");
-        escape(&record.email, &mut html);
-        html.push_str("</p><p class=\"meta\">");
-        escape(&record.received_at, &mut html);
-        html.push_str("</p><p class=\"message\" dir=\"auto\">");
-        escape(&record.message, &mut html);
-        html.push_str("</p></article>");
+    for entry in &page.entries {
+        render_entry(entry, &mut html, admin);
     }
     html.push_str("<nav aria-label=\"Message pages\">");
     if paginated {
@@ -119,7 +142,22 @@ fn render(page: Page, paginated: bool) -> String {
     include_str!("messages.html").replace("{{ENTRIES}}", &html)
 }
 
-pub(super) async fn messages(RawQuery(query): RawQuery) -> Response {
+pub(super) fn read_snapshot(before: Option<u64>) -> io::Result<Page> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(FILE)?;
+    if !file.metadata()?.is_file() {
+        return Err(invalid());
+    }
+    read_page(file, before)
+}
+
+pub(super) async fn messages(
+    State(app): State<App>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Response {
     let before = match query {
         None => None,
         Some(q) => match q
@@ -130,19 +168,12 @@ pub(super) async fn messages(RawQuery(query): RawQuery) -> Response {
             None => return StatusCode::BAD_REQUEST.into_response(),
         },
     };
-    let result = tokio::task::spawn_blocking(move || {
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(FILE)?;
-        if !file.metadata()?.is_file() {
-            return Err(invalid());
-        }
-        read_page(file, before)
-    })
-    .await;
+    let admin = app.admin_origin.is_some()
+        && single_header(&headers, "tailscale-user-login")
+            .is_some_and(|login| app.inbox_admins.contains(login));
+    let result = tokio::task::spawn_blocking(move || read_snapshot(before)).await;
     match result {
-        Ok(Ok(page)) => Html(render(page, before.is_some())).into_response(),
+        Ok(Ok(page)) => Html(render(page, before.is_some(), admin)).into_response(),
         _ => (StatusCode::SERVICE_UNAVAILABLE, "Inbox unavailable.").into_response(),
     }
 }
@@ -168,20 +199,35 @@ mod tests {
         }
         let first = read_page(Cursor::new(&data), None).unwrap();
         assert_eq!(first.entries.len(), PAGE_SIZE);
-        assert_eq!(first.entries[0].name, "15");
+        assert_eq!(first.entries[0].data.name, "15");
         let next = first.older.unwrap();
-        let html = render(first, false);
+        let line = line("15");
+        assert_eq!(
+            first.entries[0].id,
+            ring::digest::digest(&ring::digest::SHA256, &line[..line.len() - 1])
+                .as_ref()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        let html = render(first, false, false);
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt; &amp; done"));
         assert!(!html.contains("<img"));
-        data.extend(line("new"));
+        assert!(!html.contains("/messages/action/"));
+        let html = render(read_page(Cursor::new(&data), None).unwrap(), false, true);
+        assert!(html.contains("/messages/delete-all") && html.contains("/messages/action/delete/"));
+        assert!(!html.contains("<form"));
+        data.extend(self::line("new"));
         data.extend(b"{\"name\":");
         assert_eq!(
-            read_page(Cursor::new(&data), None).unwrap().entries[0].name,
+            read_page(Cursor::new(&data), None).unwrap().entries[0]
+                .data
+                .name,
             "new"
         );
         let older = read_page(Cursor::new(&data), Some(next)).unwrap();
         assert_eq!(older.entries.len(), 4);
-        assert_eq!(older.entries[0].name, "3");
+        assert_eq!(older.entries[0].data.name, "3");
         assert!(older.older.is_none());
         assert!(read_page(Cursor::new(&data), Some(next - 1)).is_err());
     }
