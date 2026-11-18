@@ -12,7 +12,6 @@ PAGES = {
     "deploy/dashboard/messages.html": "deploy/dashboard/Caddyfile",
     "deploy/dashboard/landing.html": "deploy/dashboard/Caddyfile",
     "portfolio-dashboard/src/messages.html": "portfolio-dashboard/src/main.rs",
-    "portfolio-dashboard/src/messages.html": "portfolio-dashboard/src/main.rs",
     "portfolio-dashboard/src/embed.html": "portfolio-dashboard/src/main.rs",
     "portfolio-dashboard/src/denied.html": "portfolio-dashboard/src/main.rs",
 }
