@@ -1,0 +1,32 @@
+[Unit]
+Description=Owner-approved contact erasure broker
+Requires=portfolio-inbox-actions.socket
+After=portfolio-inbox-actions.socket
+
+[Service]
+User=portfolio-inbox-actions
+Group=portfolio-inbox-actions
+ExecStart=/usr/bin/python3 -I -B /usr/local/libexec/portfolio-inbox-actions serve
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/portfolio-inbox-store
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+LimitCORE=0
+InaccessiblePaths=-/etc/credstore -/etc/portfolio-dashboard -/etc/caddy -/run/tailscale -/run/portfolio-dashboard
+Restart=on-failure
