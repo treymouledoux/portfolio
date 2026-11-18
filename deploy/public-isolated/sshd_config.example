@@ -1,12 +1,15 @@
-# Dedicated OpenSSH instance; replace the address before validating.
+# The systemd socket owns the tailnet listener. A standalone sshd using this
+# file would bind loopback only.
 Port 2222
 AddressFamily inet
-ListenAddress <PI_TAILSCALE_IPV4>
+ListenAddress 127.0.0.1
 HostKey /etc/ssh/portfolio-deploy-host-ed25519
 PidFile /run/portfolio-deploy-sshd.pid
 AllowUsers portfolio-deploy
 AuthorizedKeysFile /etc/ssh/portfolio-deploy.keys
 AuthenticationMethods publickey
+PubkeyAuthentication yes
+UsePAM yes
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
@@ -17,4 +20,5 @@ PermitTTY no
 PermitUserEnvironment no
 PermitUserRC no
 MaxSessions 1
+LoginGraceTime 30
 ForceCommand /usr/local/libexec/portfolio-public-activate

@@ -3,6 +3,8 @@
 import fcntl
 import hashlib
 import http.client
+import ipaddress
+import json
 import os
 from pathlib import Path
 import re
@@ -19,6 +21,34 @@ BASE = Path("/srv/portfolio/public")
 RELEASE_ID = r"[0-9]{1,20}-[0-9]{1,10}"
 MAX_ARCHIVE = 64 * 1024 * 1024
 MAX_CONTENT = 192 * 1024 * 1024
+TAILNET_V4 = ipaddress.IPv4Network("100.64.0.0/10")
+
+
+def require_ci_peer(connection):
+    # SSH_CONNECTION is set by the dedicated sshd. Its isolated config
+    # accepts no client environment and the fixed login shell preserves it.
+    fields = connection.split()
+    if len(fields) != 4 or fields[3] != "2222":
+        raise PermissionError("Missing or invalid deployment connection")
+    source, port, destination, _ = fields
+    peer = ipaddress.IPv4Address(source)
+    local = ipaddress.IPv4Address(destination)
+    if (peer not in TAILNET_V4 or local not in TAILNET_V4
+            or not re.fullmatch(r"[0-9]{1,5}", port) or not 1 <= int(port) <= 65535):
+        raise PermissionError("Invalid deployment connection")
+    result = subprocess.run(
+        ["/usr/bin/tailscale", "--socket=/var/run/tailscale/tailscaled.sock",
+         "whois", "--json", f"{peer}:{int(port)}"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, check=True, timeout=5,
+    )
+    identity = json.loads(result.stdout)
+    node = identity.get("Node") if isinstance(identity, dict) else None
+    tags = node.get("Tags") if isinstance(node, dict) else None
+    addresses = node.get("Addresses") if isinstance(node, dict) else None
+    if (not isinstance(tags, list) or "tag:ci" not in tags
+            or not isinstance(addresses, list) or f"{peer}/32" not in addresses):
+        raise PermissionError("CI deployment identity required")
 
 
 def sync_dir(directory):
@@ -166,11 +196,16 @@ def activate(base, command, stream, restart):
             sync_dir(base)
 
 
+def run_session(environment, stream):
+    require_ci_peer(environment.get("SSH_CONNECTION", ""))
+    activate(BASE, environment.get("SSH_ORIGINAL_COMMAND", ""), stream, restart_and_check)
+
+
 if __name__ == "__main__":
     os.umask(0o077)
     signal.signal(signal.SIGALRM, upload_timeout)
     try:
-        activate(BASE, os.environ.get("SSH_ORIGINAL_COMMAND", ""), sys.stdin.buffer, restart_and_check)
+        run_session(os.environ, sys.stdin.buffer)
     except Exception as error:
         sys.exit(f"Deployment failed: {type(error).__name__}: {error}")
     print("Activated and verified public release")

@@ -22,24 +22,17 @@ concurrency:
 env:
   TARGET: aarch64-unknown-linux-gnu   # Pi Zero 2 W (64-bit)
   BIN_NAME: portfolio-serve           # Cargo package name
-  DEPLOY_MODE: ${{ vars.PORTFOLIO_DEPLOY_MODE }}
-  REMOTE_DIR: /home/trey/portfolio-deployment
 
 jobs:
   build-and-deploy:
+    if: vars.PORTFOLIO_DEPLOY_MODE == 'isolated' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-
-      - name: Check deployment mode
-        run: |
-          case "$DEPLOY_MODE" in
-            ""|legacy|isolated) ;;
-            *) echo "Invalid PORTFOLIO_DEPLOY_MODE" >&2; exit 1 ;;
-          esac
 
       # ---------- BUILD FRONTEND (Next.js with pnpm) ----------
       # pnpm/setup@v2 is the successor to pnpm/action-setup for pnpm v11+. It
@@ -100,16 +93,8 @@ jobs:
           mkdir -p stage
           # The compiled binary
           cp portfolio-serve/target/${{ env.TARGET }}/release/${{ env.BIN_NAME }} stage/
-          # Unit and activation uploads belong exclusively to the legacy deployment.
-          if [[ "$DEPLOY_MODE" != isolated ]]; then
-            cp deploy/{portfolio.service,cloudflared.service,activate-release.sh} stage/
-          fi
-          # Copy the compiled Next.js static output (out/) into assets/ next to the binary
           cp -r portfolio-static/out stage/assets
-          if [[ "$DEPLOY_MODE" == isolated ]]; then
-            python3 -m zipfile -c public-release.zip stage/portfolio-serve stage/assets
-          fi
-          (cd stage && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          python3 -m zipfile -c public-release.zip stage/portfolio-serve stage/assets
 
       # ---------- CONNECT ----------
       - name: Connect to Tailscale
@@ -120,7 +105,6 @@ jobs:
           tags: tag:ci
 
       - name: Load isolated SSH identity and pinned host key
-        if: env.DEPLOY_MODE == 'isolated'
         env:
           DEPLOY_KEY: ${{ secrets.DEVICE_PUBLIC_SSH_KEY }}
           HOST_KEYS: ${{ secrets.DEVICE_KNOWN_HOSTS }}
@@ -134,8 +118,28 @@ jobs:
           printf '%s\n' "$HOST_KEYS" > ~/.ssh/public_known_hosts
           ssh-keygen -F "[$DEVICE_HOST]:2222" -f ~/.ssh/public_known_hosts > /dev/null
 
+      - name: Verify that CI cannot reach administrative SSH
+        env:
+          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
+        run: |
+          python3 - <<'PYTHON'
+          import errno
+          import os
+          import socket
+
+          try:
+              connection = socket.create_connection((os.environ["DEVICE_HOST"], 22), timeout=5)
+          except OSError as error:
+              if not isinstance(error, TimeoutError) and error.errno not in (
+                  errno.EACCES, errno.EHOSTUNREACH, errno.ENETUNREACH, errno.ECONNREFUSED
+              ):
+                  raise
+          else:
+              connection.close()
+              raise SystemExit("CI can reach administrative SSH; deployment stopped")
+          PYTHON
+
       - name: Send isolated release over restricted OpenSSH
-        if: env.DEPLOY_MODE == 'isolated'
         env:
           DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
           RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -143,42 +147,7 @@ jobs:
           set -euo pipefail
           digest=$(sha256sum public-release.zip | cut -d' ' -f1)
           ssh -F /dev/null -T -p 2222 -i ~/.ssh/public_deploy_key \
-            -o BatchMode=yes -o IdentitiesOnly=yes -o ForwardAgent=no \
+            -o ConnectTimeout=12 -o BatchMode=yes -o IdentitiesOnly=yes -o ForwardAgent=no \
             -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
             -o UserKnownHostsFile="$HOME/.ssh/public_known_hosts" \
             "portfolio-deploy@$DEVICE_HOST" "deploy $RELEASE_ID $digest" < public-release.zip
-
-      - name: Write legacy SSH key and known_hosts
-        if: env.DEPLOY_MODE != 'isolated'
-        env:
-          DEPLOY_KEY: ${{ secrets.DEVICE_SSH_KEY }}
-          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
-        run: |
-          umask 077
-          mkdir -p ~/.ssh
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEVICE_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Upload complete release while current site stays online
-        if: env.DEPLOY_MODE != 'isolated'
-        env:
-          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
-          DEVICE_USERNAME: ${{ secrets.DEVICE_USERNAME }}
-          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          remote="$DEVICE_USERNAME@$DEVICE_HOST"
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$remote" \
-            "mkdir -p '$REMOTE_DIR/releases/$RELEASE_ID'"
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -r stage/. \
-            "$remote:$REMOTE_DIR/releases/$RELEASE_ID/"
-
-      - name: Activate release with health check and rollback
-        if: env.DEPLOY_MODE != 'isolated'
-        env:
-          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
-          DEVICE_USERNAME: ${{ secrets.DEVICE_USERNAME }}
-          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$DEVICE_USERNAME@$DEVICE_HOST" \
-            "bash '$REMOTE_DIR/releases/$RELEASE_ID/activate-release.sh' '$REMOTE_DIR' '$RELEASE_ID'"

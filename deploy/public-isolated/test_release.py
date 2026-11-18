@@ -2,14 +2,62 @@
 import fcntl
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import Mock, call, patch
 import zipfile
 
 import activate
+
+
+class PeerIdentity(unittest.TestCase):
+    connection = "100.64.1.4 54321 100.64.1.10 2222"
+    signed_node = {"Addresses": ["100.64.1.4/32"], "Tags": ["tag:ci"]}
+
+    @patch("activate.subprocess.run")
+    def test_requires_tag_and_exact_peer_address(self, run):
+        run.return_value.stdout = json.dumps({"Node": self.signed_node}).encode()
+        activate.require_ci_peer(self.connection)
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ["/usr/bin/tailscale", "--socket=/var/run/tailscale/tailscaled.sock",
+                                   "whois", "--json", "100.64.1.4:54321"])
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertTrue(kwargs["check"])
+        self.assertEqual(kwargs["timeout"], 5)
+        self.assertEqual(kwargs["env"], {"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+
+    @patch("activate.activate")
+    @patch("activate.subprocess.run")
+    def test_untrusted_or_unavailable_identity_cannot_start_release(self, run, publish):
+        stream = Mock()
+        env = {"SSH_CONNECTION": self.connection, "SSH_ORIGINAL_COMMAND": "deploy 123-1 " + "0" * 64}
+        for doc in ({}, [], {"Node": {"Tags": ["tag:ci"]}},
+                    {"Node": {**self.signed_node, "Tags": []}},
+                    {"Node": {**self.signed_node, "Tags": "tag:ci"}},
+                    {"Node": {**self.signed_node, "Addresses": ["100.64.1.9/32"]}}):
+            run.return_value.stdout = json.dumps(doc).encode()
+            with self.subTest(doc=doc), self.assertRaises(PermissionError):
+                activate.run_session(env, stream)
+        run.return_value.stdout = b""
+        with self.assertRaises(ValueError):
+            activate.run_session(env, stream)
+        run.side_effect = subprocess.TimeoutExpired("whois", 5)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            activate.run_session(env, stream)
+        stream.read.assert_not_called()
+        publish.assert_not_called()
+
+    @patch("activate.subprocess.run")
+    def test_missing_or_non_tailnet_socket_rejected_before_lookup(self, run):
+        for connection in ("", "192.0.2.1 444 100.64.1.10 2222", "100.64.1.4 0 100.64.1.10 2222",
+                           "100.64.1.4 444 127.0.0.1 2222", "100.64.1.4 444 100.64.1.10 22"):
+            with self.subTest(connection=connection), self.assertRaises(PermissionError):
+                activate.require_ci_peer(connection)
+        run.assert_not_called()
 
 
 def package(extra=None, omit=None):

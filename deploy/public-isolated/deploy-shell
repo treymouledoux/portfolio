@@ -1,0 +1,8 @@
+#!/bin/sh
+# sshd invokes the account's shell with "-c <server ForceCommand>".
+if [ "$#" -ne 2 ] || [ "$1" != "-c" ] || [ "$2" != "/usr/local/libexec/portfolio-public-activate" ]; then
+    exit 126
+fi
+exec /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+    "SSH_CONNECTION=${SSH_CONNECTION-}" "SSH_ORIGINAL_COMMAND=${SSH_ORIGINAL_COMMAND-}" \
+    /usr/local/libexec/portfolio-public-activate

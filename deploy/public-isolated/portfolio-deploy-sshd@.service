@@ -1,0 +1,8 @@
+[Unit]
+Description=Restricted public portfolio release connection
+
+[Service]
+ExecStart=/usr/sbin/sshd -i -e -f /etc/ssh/portfolio-deploy.conf
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal

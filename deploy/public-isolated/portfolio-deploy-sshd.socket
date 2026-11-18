@@ -1,0 +1,14 @@
+[Unit]
+Description=Tailnet interface socket for public portfolio releases
+
+[Socket]
+# Replace the placeholder with this Pi's verified Tailscale IPv4 address.
+ListenStream=<PI_TAILSCALE_IPV4>:2222
+BindToDevice=tailscale0
+FreeBind=yes
+Accept=yes
+MaxConnections=8
+MaxConnectionsPerSource=2
+
+[Install]
+WantedBy=sys-subsystem-net-devices-tailscale0.device
