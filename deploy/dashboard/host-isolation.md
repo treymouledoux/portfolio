@@ -10,6 +10,12 @@ At an approved maintenance window with independent local recovery, install [the 
 
 Check that the public web, tunnel, Caddy and dashboard UIDs all fail a connection to the standard LocalAPI socket, including outside their systemd namespaces. Confirm only root can connect to the dashboard socket. Verify a tagged CI release, rejection of the correctly keyed non-CI test peer, and existing human recovery access. Repeat after restart and reboot. Hold private ingress closed if these checks fail. To roll back this drop-in, disable private ingress first and restore the prior unit through the independent recovery session.
 
+## Keep DNS working after host resolver changes
+
+Install [stable-resolver.conf](stable-resolver.conf) as `90-stable-resolver.conf` in the service drop-in directories for `portfolio`, `portfolio-dashboard` and `cloudflared`. Append `BindReadOnlyPaths=/etc/portfolio-public/tunnel` to the **cloudflared copy only** for its scoped configuration and credential. The root-owned resolver source must contain the verified public upstreams allowed by the firewall. Each service gets a private read-only `/etc` with the resolver, trust store and listed runtime files. A host-side atomic replacement of `/etc/resolv.conf` can displace a file-only mount in a shared directory.
+
+Validate the tunnel ingress configuration under the tunnel UID, reload systemd and restart the services individually. Compare each active process’s `/proc/<pid>/root/etc/resolv.conf` to the approved source. Verify a fresh SMTP TLS connection as the web UID, a new tunnel connection, the public homepage and both authenticated dashboard probes. Recheck these dependencies when adding features that need another file under `/etc`.
+
 ## Stage the packet filter
 
 Use the actual Pi addresses, provider ranges and UIDs. Keep the inventory, generated rules and backups root-readable. For the initial private ts.net deployment, use the **status-only** stage. The [inventory example](host-guard.inventory.example.json) is inert. Copy it privately and replace the values for the chosen stage. The [renderer](render-host-guard.py) only reads JSON and writes an nft transaction to stdout. It can run offline. It leaves the live firewall untouched.
