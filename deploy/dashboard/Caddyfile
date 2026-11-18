@@ -1,0 +1,98 @@
+{
+	admin off
+	auto_https off
+	servers {
+		protocols h1 h2
+		strict_sni_host on
+	}
+}
+
+(public_upstream) {
+	# The origin and Host are fixed. Only explicitly listed request fields
+	# reach the public application. It cannot use this connection to Serve.
+	transport http {
+		dial_timeout 3s
+		response_header_timeout 15s
+	}
+	header_up -*
+	header_up Host treymouledoux.me
+	header_up Accept {http.request.header.Accept}
+	header_up Accept-Encoding {http.request.header.Accept-Encoding}
+	header_up Content-Type {http.request.header.Content-Type}
+	header_up Range {http.request.header.Range}
+	header_up If-Range {http.request.header.If-Range}
+	header_up If-Modified-Since {http.request.header.If-Modified-Since}
+	header_up If-None-Match {http.request.header.If-None-Match}
+	header_down -Set-Cookie
+	header_down -Alt-Svc
+}
+
+https://treymouledoux.me {
+	# Replace both documentation addresses with this private node's tail IPs.
+	bind 192.0.2.1 2001:db8::1
+	tls /etc/caddy/tls/apex-fullchain.pem /etc/caddy/tls/apex-key.pem
+
+	@landing {
+		method GET HEAD
+		path /dashboard /dashboard/
+		# Exact workstation tailnet addresses, in addition to network grants.
+		remote_ip 192.0.2.10/32 2001:db8::10/128
+	}
+	@private path /dashboard /dashboard/*
+	@public_read method GET HEAD
+	@contact {
+		method POST
+		path /api/contact
+	}
+	route {
+		handle @landing {
+			header {
+				Content-Security-Policy "default-src 'none'; style-src 'sha256-qr0LGvLqqJjgBEfkjC2xQxwPO5nR3JTl/HNbqQsNek4='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+				Cache-Control "private, no-store"
+				Referrer-Policy no-referrer
+				X-Content-Type-Options nosniff
+				X-Frame-Options DENY
+				X-Robots-Tag noindex
+			}
+			root * /usr/local/share/portfolio-dashboard
+			rewrite * /landing.html
+			file_server
+		}
+		handle @private {
+			# Request only the public denial document, without any client
+			# parameters, credentials, method or body.
+			reverse_proxy 127.0.0.1:6050 {
+				method GET
+				rewrite /dashboard?
+				header_up -*
+				header_up Host treymouledoux.me
+				header_down -Set-Cookie
+				header_down Cache-Control "private, no-store"
+				replace_status 403
+			}
+		}
+		handle @contact {
+			request_body {
+				max_size 64KiB
+			}
+			reverse_proxy 127.0.0.1:6050 {
+				import public_upstream
+				# Matches portfolio-serve's existing loopback proxy contract.
+				header_up CF-Connecting-IP {http.request.remote.host}
+			}
+		}
+		handle @public_read {
+			reverse_proxy 127.0.0.1:6050 {
+				import public_upstream
+			}
+		}
+		handle {
+			header Cache-Control no-store
+			respond 405
+		}
+	}
+	handle_errors {
+		header Cache-Control no-store
+		respond "Request unavailable." {err.status_code}
+	}
+}

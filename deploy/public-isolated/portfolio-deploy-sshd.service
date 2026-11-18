@@ -1,0 +1,14 @@
+[Unit]
+Description=Restricted public portfolio release transport
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+# The standard OpenSSH listener drops to the forced-command account after authentication.
+ExecStartPre=/usr/sbin/sshd -t -f /etc/ssh/portfolio-deploy.conf
+ExecStart=/usr/sbin/sshd -D -e -f /etc/ssh/portfolio-deploy.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

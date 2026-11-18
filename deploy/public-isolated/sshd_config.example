@@ -1,0 +1,20 @@
+# Dedicated OpenSSH instance; replace the address before validating.
+Port 2222
+AddressFamily inet
+ListenAddress <PI_TAILSCALE_IPV4>
+HostKey /etc/ssh/portfolio-deploy-host-ed25519
+PidFile /run/portfolio-deploy-sshd.pid
+AllowUsers portfolio-deploy
+AuthorizedKeysFile /etc/ssh/portfolio-deploy.keys
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin no
+DisableForwarding yes
+PermitTunnel no
+PermitTTY no
+PermitUserEnvironment no
+PermitUserRC no
+MaxSessions 1
+ForceCommand /usr/local/libexec/portfolio-public-activate

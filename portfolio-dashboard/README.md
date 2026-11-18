@@ -1,0 +1,41 @@
+# Private dashboard
+
+This service reports the public portfolio's HTTPS health and one JetKVM port's TCP reachability. Operators can open Tailscale Machines to start a separately authorized browser SSH session to the Pi. The dashboard has no shell, SSH client, stored SSH credentials or general-purpose network endpoint.
+
+## Request paths
+
+| Visitor | Request path and result |
+|---|---|
+| Public internet | Cloudflare → existing tunnel → public Axum listener. The public server returns a static 403 for `/dashboard` and its subtree. |
+| Approved browser | A restricted DNS view resolves the apex to the Pi. Caddy serves a cookie-free landing page at the exact dashboard URL. Its sandboxed frame renders two status values from the Pi's separate Tailscale HTTPS origin. |
+| Direct private view | Tailscale Serve on TCP 8443 authenticates the transport peer, strips caller-supplied identity and forwards to a root-only Unix socket. The Rust service checks the exact human login for the page, API, frame and assets. |
+| Pi operator | The private dashboard opens Tailscale Machines in a new tab. Select the named Pi and **SSH**. The operator authenticates to Tailscale and is subject to a separate SSH policy and OS account restriction. |
+
+Only `/embed/status` permits framing by the exact portfolio origin. The frame has no script, inputs, links or messaging channel. A compromised portfolio can falsify what the surrounding page displays. For authoritative information, open the private origin directly. A stricter deployment can remove the embed entirely. Keep future sensitive operations on an independently verified top-level origin. [Tailscale Serve identity forwarding](https://github.com/tailscale/tailscale/blob/v1.104.7/ipn/ipnlocal/serve.go) · [Browser SSH requirements](https://tailscale.com/docs/features/tailscale-ssh/tailscale-ssh-console)
+
+## Configuration and verification
+
+Use the [gateway runbook](../deploy/dashboard/README.md) and [restricted public deployment migration](../deploy/public-isolated/README.md) together. The one-Pi design shares the host kernel, root account, Tailscale daemon and node identity across workloads. Complete the public deploy migration, process/UID isolation, firewall and policy checks before serving private data. Retain independent recovery access to the Pi.
+
+Configure `DASHBOARD_VIEWERS`, `DASHBOARD_JETKVM_IP` and `DASHBOARD_JETKVM_PORT` in the protected host environment. An optional `DASHBOARD_PI_MACHINE` supplies the Pi label on the full dashboard. A positive JetKVM result means the configured port accepted a TCP connection. It says nothing about a video stream, remote input or successful KVM login. The website probe requires a verified HTTPS 200 with the expected health body. Probes run independently of page requests every 30 seconds. The embedded view is a snapshot refreshed on page reload.
+
+The [CoreDNS example](../deploy/dashboard/Corefile.example) is one option for a restricted nameserver. Put actual approved client addresses and the Pi address only in the installed copy. Use a CoreDNS build with the view, template, bind and forward plugins. Provide ordinary public upstream nameservers in `/etc/portfolio-dns/public-resolv.conf`. Stage UDP and TCP queries from a viewer and nonviewer, covering A, AAAA, HTTPS/SVCB, MX/TXT and a public subdomain. Browsers using a different resolver or an existing public connection can continue to receive the safe public 403 until they reconnect. Peers blocked at TCP cannot receive an HTTP page. [CoreDNS client views](https://coredns.io/plugins/view/) · [Tailscale DNS](https://tailscale.com/docs/reference/dns-in-tailscale)
+
+From this directory:
+
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+python3 ../scripts/check-dashboard-styles.py
+```
+
+[Dashboard CI](../.github/workflows/dashboard.yml) runs the checks and builds on Linux ARM64. A manual build of main retains just the executable in a tarball for three days. The workflow has no tailnet identity and cannot install software on the Pi. Confirm the source revision, artifact provenance, target architecture and libc compatibility before a separately approved, root-owned installation. Keep site-specific configuration outside every build archive.
+
+## Rollout order
+
+1. Ship the public 403 through the existing portfolio workflow after approval.
+2. Migrate the public release identity and preserve the contact data. Verify the restricted account can deploy and roll back the public site without touching gateway files, keys or units.
+3. Stage the private socket, status worker, Serve, firewall and grants. Require both the intended person and eligible source devices. Verify unapproved devices under the same owner account are excluded.
+4. Stage DNS, apex TLS and Caddy, then test real browsers on and off the tailnet. Verify public pages, contact rate limiting, denied requests, both probes, credential-free apex traffic and SSH reauthentication.
+5. Enable this read-only pilot only after the checks and explicit approval. Moving privileged automation onto this host would enlarge the effects of a public-host compromise. Revisit isolation and independent approval before adding writes.

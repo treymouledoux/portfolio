@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Tailnet service status</title>
+    <style>
+      :root { color-scheme: dark; color: #eff4f5; background: #121b21; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: clamp(1rem, 4vw, 1.75rem); }
+      h1 { margin: 0; font-size: 1.15rem; letter-spacing: -.025em; }
+      dl { margin: .45rem 0; }
+      .row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .35rem 1rem; padding: .9rem 0; border-bottom: 1px solid #34414a; }
+      dt { font-weight: 600; }
+      dt small { display: block; margin-top: .2rem; color: #b1bec6; font-size: .78rem; font-weight: 400; }
+      dd { margin: 0; font-size: .9rem; font-weight: 600; }
+      dd::before { content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .5rem; border-radius: 50%; background: #99a5ad; }
+      .good::before { background: #96e5d4; }
+      .bad::before { background: #f6a383; }
+      p { margin: .8rem 0 0; font-size: .8rem; color: #b1bec6; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Service status</h1>
+      <dl>
+        <div class="row">
+          <dt>Portfolio website<small>HTTPS health check</small></dt>
+          <dd class="{{WEBSITE_TONE}}">{{WEBSITE_STATUS}}</dd>
+        </div>
+        <div class="row">
+          <dt>JetKVM<small>TCP reachability</small></dt>
+          <dd class="{{JETKVM_TONE}}">{{JETKVM_STATUS}}</dd>
+        </div>
+      </dl>
+      <p>Reload the page for the latest checks.</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+[Unit]
+Description=Private status HTTP socket for Tailscale Serve
+
+[Socket]
+ListenStream=/run/portfolio-dashboard/app.sock
+FileDescriptorName=dashboard
+DirectoryMode=0700
+SocketUser=root
+SocketGroup=root
+SocketMode=0600
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

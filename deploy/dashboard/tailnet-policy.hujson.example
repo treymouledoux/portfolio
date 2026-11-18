@@ -1,0 +1,45 @@
+// Merge narrowly into the FULL existing policy, then run policy tests.
+// Deliberately invalid substitution tokens keep this example inert.
+{
+  "groups": {
+    "group:pi-shell": ["SHELL_OPERATOR_LOGIN"],
+  },
+  "hosts": {
+    "dashboard-kvm": "JETKVM_TAILNET_IPV4",
+    "view-device-v4": "APPROVED_WORKSTATION_TAILNET_IPV4",
+    "view-device-v6": "APPROVED_WORKSTATION_TAILNET_IPV6",
+  },
+  "postures": {
+    "posture:ssh-console": {"assertions": ["node:os IN ['js']"]},
+  },
+  "grants": [
+    {"src": ["view-device-v4", "view-device-v6"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:443", "tcp:8443"]},
+    {"src": ["tag:dashboard-pi"], "dst": ["dashboard-kvm"], "ip": ["tcp:JETKVM_PORT"]},
+    {"src": ["group:pi-shell"], "srcPosture": ["posture:ssh-console"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:22"]},
+    {"src": ["tag:ci"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:2222"]},
+  ],
+  // SSH rules have a smaller destination vocabulary than network grants.
+  // Allocate an exclusive tag on this specific, already-tagged Pi; keep its
+  // existing tag as required. Restrict assignments to trusted administrators.
+  "tagOwners": {"tag:dashboard-pi": ["autogroup:admin"]},
+  "ssh": [
+    {
+      "action": "check", "checkPeriod": "always",
+      "src": ["group:pi-shell"], "dst": ["tag:dashboard-pi"],
+      "srcPosture": ["posture:ssh-console"],
+      "users": ["RESTRICTED_LOCAL_SHELL_USER"],
+    },
+  ],
+  "tests": [
+    {"src": "view-device-v4", "proto": "tcp", "accept": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443"], "deny": ["tag:dashboard-pi:2222"]},
+    {"src": "view-device-v6", "proto": "tcp", "accept": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443"]},
+    {"src": "dashboard-kvm", "deny": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443", "tag:dashboard-pi:2222", "tag:dashboard-pi:22"]},
+    {"src": "NONVIEWER_LOGIN", "deny": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443", "tag:dashboard-pi:22"]},
+    {"src": "tag:ci", "accept": ["tag:dashboard-pi:2222"], "deny": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443", "tag:dashboard-pi:22", "dashboard-kvm:JETKVM_PORT"]},
+    {"src": "tag:dashboard-pi", "accept": ["dashboard-kvm:JETKVM_PORT"], "deny": ["dashboard-kvm:ANOTHER_DENIED_KVM_PORT"]},
+  ],
+  "sshTests": [
+    {"src": "SHELL_OPERATOR_LOGIN", "srcPostureAttrs": {"node:os": "js"}, "dst": ["tag:dashboard-pi"], "check": ["RESTRICTED_LOCAL_SHELL_USER"], "deny": ["root", "portfolio-deploy"]},
+    {"src": "tag:ci", "dst": ["tag:dashboard-pi"], "deny": ["RESTRICTED_LOCAL_SHELL_USER", "portfolio-deploy", "root"]},
+  ],
+}

@@ -1,0 +1,46 @@
+[Unit]
+Description=Public portfolio HTTP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=portfolio-public
+Group=portfolio-public
+WorkingDirectory=/srv/portfolio/public/current
+ExecStart=/srv/portfolio/public/current/portfolio-serve
+Environment=PORTFOLIO_BIND=127.0.0.1:6050
+Environment=PORTFOLIO_TRUST_CLOUDFLARE=true
+Environment=PORTFOLIO_DATA_DIR=/var/lib/portfolio-public
+StateDirectory=portfolio-public
+StateDirectoryMode=0700
+LoadCredential=portfolio-contact-smtp.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6
+SocketBindDeny=any
+SocketBindAllow=ipv4:tcp:6050
+IPAddressDeny=100.64.0.0/10 fd7a:115c:a1e0::/48
+InaccessiblePaths=-/run/tailscale -/var/lib/tailscale -/run/portfolio-dashboard -/etc/portfolio-dashboard -/etc/caddy -/etc/portfolio-public/tunnel -/etc/ssh -/etc/credstore -/etc/credstore.encrypted
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

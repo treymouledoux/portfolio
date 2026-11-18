@@ -3,6 +3,11 @@ name: Deploy Portfolio
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - 'portfolio-dashboard/**'
+      - 'deploy/dashboard/**'
+      - '.github/workflows/dashboard.yml'
+      - 'scripts/check-dashboard-styles.py'
   workflow_dispatch:
 
 # Grant permissions for the OIDC JWT token
@@ -17,6 +22,7 @@ concurrency:
 env:
   TARGET: aarch64-unknown-linux-gnu   # Pi Zero 2 W (64-bit)
   BIN_NAME: portfolio-serve           # Cargo package name
+  DEPLOY_MODE: ${{ vars.PORTFOLIO_DEPLOY_MODE }}
   REMOTE_DIR: /home/trey/portfolio-deployment
 
 jobs:
@@ -24,7 +30,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Check deployment mode
+        run: |
+          case "$DEPLOY_MODE" in
+            ""|legacy|isolated) ;;
+            *) echo "Invalid PORTFOLIO_DEPLOY_MODE" >&2; exit 1 ;;
+          esac
 
       # ---------- BUILD FRONTEND (Next.js with pnpm) ----------
       # pnpm/setup@v2 is the successor to pnpm/action-setup for pnpm v11+. It
@@ -32,7 +47,7 @@ jobs:
       # actions/setup-node), and auto-runs `pnpm install` on the package.json
       # it's pointed at.
       - name: Set up pnpm and Node
-        uses: pnpm/setup@v2
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2
         with:
           runtime: node@24
           cache: true
@@ -49,8 +64,9 @@ jobs:
 
       # ---------- BUILD RUST (cross-compiled on the x86 runner) ----------
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
+          toolchain: stable
           targets: aarch64-unknown-linux-gnu
 
       - name: Install aarch64 linker
@@ -59,7 +75,7 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: portfolio-serve
           key: ${{ env.TARGET }}
@@ -71,6 +87,7 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           python3 ../scripts/test-deployment.py
+          python3 -B ../deploy/public-isolated/test_release.py
 
       - name: Cross-compile release binary
         working-directory: portfolio-serve
@@ -83,30 +100,67 @@ jobs:
           mkdir -p stage
           # The compiled binary
           cp portfolio-serve/target/${{ env.TARGET }}/release/${{ env.BIN_NAME }} stage/
-          # The systemd units
-          cp deploy/portfolio.service stage/
-          cp deploy/cloudflared.service stage/
-          cp deploy/activate-release.sh stage/
+          # Unit and activation uploads belong exclusively to the legacy deployment.
+          if [[ "$DEPLOY_MODE" != isolated ]]; then
+            cp deploy/{portfolio.service,cloudflared.service,activate-release.sh} stage/
+          fi
           # Copy the compiled Next.js static output (out/) into assets/ next to the binary
           cp -r portfolio-static/out stage/assets
+          if [[ "$DEPLOY_MODE" == isolated ]]; then
+            python3 -m zipfile -c public-release.zip stage/portfolio-serve stage/assets
+          fi
           (cd stage && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
       # ---------- CONNECT ----------
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
 
-      - name: Write SSH key and known_hosts
+      - name: Load isolated SSH identity and pinned host key
+        if: env.DEPLOY_MODE == 'isolated'
+        env:
+          DEPLOY_KEY: ${{ secrets.DEVICE_PUBLIC_SSH_KEY }}
+          HOST_KEYS: ${{ secrets.DEVICE_KNOWN_HOSTS }}
+          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
         run: |
+          set -euo pipefail
+          umask 077
+          [[ "$DEVICE_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]*$ && -n "$DEPLOY_KEY" && -n "$HOST_KEYS" ]]
           mkdir -p ~/.ssh
-          echo "${{ secrets.DEVICE_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.DEVICE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/public_deploy_key
+          printf '%s\n' "$HOST_KEYS" > ~/.ssh/public_known_hosts
+          ssh-keygen -F "[$DEVICE_HOST]:2222" -f ~/.ssh/public_known_hosts > /dev/null
+
+      - name: Send isolated release over restricted OpenSSH
+        if: env.DEPLOY_MODE == 'isolated'
+        env:
+          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
+          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          digest=$(sha256sum public-release.zip | cut -d' ' -f1)
+          ssh -F /dev/null -T -p 2222 -i ~/.ssh/public_deploy_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ForwardAgent=no \
+            -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
+            -o UserKnownHostsFile="$HOME/.ssh/public_known_hosts" \
+            "portfolio-deploy@$DEVICE_HOST" "deploy $RELEASE_ID $digest" < public-release.zip
+
+      - name: Write legacy SSH key and known_hosts
+        if: env.DEPLOY_MODE != 'isolated'
+        env:
+          DEPLOY_KEY: ${{ secrets.DEVICE_SSH_KEY }}
+          DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEVICE_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Upload complete release while current site stays online
+        if: env.DEPLOY_MODE != 'isolated'
         env:
           DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
           DEVICE_USERNAME: ${{ secrets.DEVICE_USERNAME }}
@@ -120,6 +174,7 @@ jobs:
             "$remote:$REMOTE_DIR/releases/$RELEASE_ID/"
 
       - name: Activate release with health check and rollback
+        if: env.DEPLOY_MODE != 'isolated'
         env:
           DEVICE_HOST: ${{ secrets.DEVICE_HOST }}
           DEVICE_USERNAME: ${{ secrets.DEVICE_USERNAME }}

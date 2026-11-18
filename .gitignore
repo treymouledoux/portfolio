@@ -10,3 +10,6 @@ data/
 submissions.json
 submissions.jsonl
 portfolio-contact-smtp.json
+
+# Host-local private dashboard settings and viewer/device inventory
+/deploy/dashboard/local/

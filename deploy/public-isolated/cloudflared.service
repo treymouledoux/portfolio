@@ -1,0 +1,36 @@
+[Unit]
+Description=Public portfolio tunnel
+After=network-online.target portfolio.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=portfolio-tunnel
+Group=portfolio-tunnel
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --config /etc/portfolio-public/tunnel/config.yml run
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=100.64.0.0/10 fd7a:115c:a1e0::/48
+InaccessiblePaths=-/run/tailscale -/var/lib/tailscale -/run/portfolio-dashboard -/etc/portfolio-dashboard -/etc/caddy -/var/lib/portfolio-public -/srv/portfolio/public -/etc/ssh -/etc/credstore -/etc/credstore.encrypted
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

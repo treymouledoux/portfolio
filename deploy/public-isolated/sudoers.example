@@ -1,0 +1,2 @@
+Defaults:portfolio-deploy env_reset,!setenv
+portfolio-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart portfolio.service

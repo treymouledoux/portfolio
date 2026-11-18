@@ -1,0 +1,38 @@
+# On the Pi, bind the restricted nameserver to tailscale0 only. Replace
+# the documentation addresses in the view with individually approved client
+# addresses (/32 or /128). Keep this list in host-local configuration.
+treymouledoux.me:53 {
+    bind tailscale0
+    view dashboard_viewers {
+        expr incidr(client_ip(), '192.0.2.10/32') || incidr(client_ip(), '2001:db8::10/128')
+    }
+    template IN A {
+        match ^treymouledoux[.]me[.]$
+        answer "{{ .Name }} 30 IN A 192.0.2.1"
+        fallthrough
+    }
+    # This example advertises private IPv4 only. Suppress public IPv6 and
+    # service binding hints for this apex while preserving other DNS records.
+    template IN AAAA {
+        match ^treymouledoux[.]me[.]$
+        rcode NOERROR
+        fallthrough
+    }
+    template IN HTTPS {
+        match ^treymouledoux[.]me[.]$
+        rcode NOERROR
+        fallthrough
+    }
+    template IN SVCB {
+        match ^treymouledoux[.]me[.]$
+        rcode NOERROR
+        fallthrough
+    }
+    forward . /etc/portfolio-dns/public-resolv.conf
+}
+
+# Other direct tailnet clients get ordinary public DNS for this zone.
+treymouledoux.me:53 {
+    bind tailscale0
+    forward . /etc/portfolio-dns/public-resolv.conf
+}

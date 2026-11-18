@@ -1,0 +1,31 @@
+[Unit]
+Description=Read-only portfolio status dashboard
+Requires=portfolio-dashboard.socket
+After=portfolio-dashboard.socket network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/libexec/portfolio-dashboard
+User=portfolio-dashboard
+Group=portfolio-dashboard
+EnvironmentFile=/etc/portfolio-dashboard/status.env
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+PrivateDevices=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+InaccessiblePaths=-/run/tailscale -/var/lib/tailscale -/etc/portfolio-dashboard -/etc/caddy -/run/dbus -/run/systemd/private
+Restart=on-failure
+RestartSec=5
