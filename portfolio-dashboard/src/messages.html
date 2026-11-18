@@ -6,21 +6,113 @@
   <meta name="referrer" content="no-referrer">
   <title>Contact messages</title>
   <style>
-    :root { color-scheme: dark; font: 1rem/1.55 system-ui, sans-serif; background: #0b1014; color: #eff4f5; }
+    :root {
+      color-scheme: dark;
+      --text: #e8f1f3;
+      --muted: #9fb2ba;
+      --faint: #778b94;
+      --line: #1f2e36;
+      --line-soft: #18242c;
+      --line-strong: #2e434e;
+      --accent: #8ee6d5;
+      --bad: #f3a184;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+      color: var(--text);
+      background: #070b0e;
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: .5rem; }
-    main { max-width: 62rem; margin: auto; }
-    article { margin-bottom: .85rem; padding: clamp(1rem, 4vw, 1.75rem); border: 1px solid #34414a; border-radius: 1rem; background: #121b21; overflow-wrap: anywhere; }
-    h1 { margin: .4rem 0 1.25rem; font-size: clamp(2rem, 7vw, 3.8rem); letter-spacing: -.055em; line-height: 1.1; }
-    h2 { margin: 0; font-size: 1.1rem; }
-    .meta { margin: .25rem 0; color: #b1bec6; font-size: .85rem; }
-    .message { margin: 1rem 0 0; white-space: pre-wrap; }
-    nav { display: flex; gap: 1.5rem; flex-wrap: wrap; padding: .4rem 0; }
-    .remove { display: inline-block; margin-top: .75rem; padding: .35rem .8rem; color: #ffa4a7; border: 1px solid #a84b51; border-radius: .5rem; font-size: .9rem; }
-    .bulk { margin-bottom: 1rem; }
-    a { color: #96e5d4; text-underline-offset: .2em; }
-    :focus-visible { outline: 2px solid currentColor; outline-offset: .2rem; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: clamp(0.9rem, 3vw, 1.6rem);
+      background: #070b0e;
+      background-image: radial-gradient(48rem 26rem at 85% -10%, rgba(62, 168, 151, 0.14), transparent 65%);
+    }
+    main { max-width: 60rem; margin-inline: auto; }
+    h1, h2, p { margin: 0; }
+    .inbox-head { padding-bottom: 1.15rem; margin-bottom: 1.3rem; border-bottom: 1px solid var(--line-soft); }
+    .eyebrow {
+      color: var(--accent);
+      font: 0.66rem/1 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.9;
+    }
+    h1 { margin-top: 0.55rem; font-size: clamp(1.6rem, 5vw, 2.15rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.035em; }
+    .lede { margin-top: 0.5rem; color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+    article {
+      position: relative;
+      margin-bottom: 0.8rem;
+      padding: 1.1rem 1.25rem 1.2rem;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: linear-gradient(165deg, rgba(24, 38, 46, 0.86), rgba(13, 21, 27, 0.92));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      overflow-wrap: anywhere;
+    }
+    article::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(142, 230, 213, 0.26), transparent);
+    }
+    article h2 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
+    .meta {
+      display: inline-block;
+      margin: 0.55rem 0.35rem 0 0;
+      padding: 0.2rem 0.5rem;
+      border: 1px solid var(--line-soft);
+      border-radius: 0.35rem;
+      background: rgba(8, 14, 18, 0.6);
+      color: var(--faint);
+      font: 0.7rem/1.4 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+    }
+    .message { margin-top: 0.85rem; color: #d7e3e5; font-size: 0.9rem; line-height: 1.65; white-space: pre-wrap; }
+    nav { display: flex; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.7rem; border-top: 1px solid var(--line-soft); margin-top: 1.1rem; }
+    nav a {
+      padding: 0.45rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 0.5rem;
+      background: rgba(18, 29, 36, 0.55);
+      color: var(--muted);
+      font: 0.72rem/1.2 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      text-decoration: none;
+    }
+    nav a:hover { border-color: var(--line-strong); color: var(--text); }
+    .remove {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 0.9rem;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid rgba(243, 161, 132, 0.3);
+      border-radius: 0.5rem;
+      background: rgba(243, 161, 132, 0.08);
+      color: var(--bad);
+      font: 0.72rem/1.2 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      text-decoration: none;
+    }
+    .remove:hover { background: rgba(243, 161, 132, 0.16); border-color: rgba(243, 161, 132, 0.5); }
+    .bulk { display: flex; justify-content: flex-end; margin-bottom: 0.9rem; }
+    .bulk .remove { margin-top: 0; }
+    main > p:not(.bulk) {
+      padding: 2.5rem 1rem;
+      border: 1px dashed var(--line);
+      border-radius: 1rem;
+      color: var(--faint);
+      font: 0.78rem/1.6 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      text-align: center;
+    }
+    a { color: var(--accent); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 0.2rem; }
   </style>
 </head>
-<body><main><h1>Contact messages</h1>{{ENTRIES}}</main></body>
+<body><main>
+  <header class="inbox-head">
+    <p class="eyebrow">Private inbox</p>
+    <h1>Contact messages</h1>
+    <p class="lede">Submissions from the portfolio contact form, newest first.</p>
+  </header>
+  {{ENTRIES}}
+</main></body>
 </html>

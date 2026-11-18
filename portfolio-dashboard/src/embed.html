@@ -8,26 +8,78 @@
     <style>
       :root {
         color-scheme: dark;
-        color: #eff4f5;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --text: #e8f1f3;
+        --faint: #778b94;
+        --line: #1f2e36;
+        --line-soft: #18242c;
+        --accent: #8ee6d5;
+        --bad: #f3a184;
+        color: var(--text);
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
       }
       * { box-sizing: border-box; }
-      body { margin: 0; background: transparent; }
-      main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-      article { padding: clamp(1.25rem, 3.5vw, 2rem); border: 1px solid #34414a; border-radius: 1rem; background: #121b21; }
-      header, .reading { display: flex; align-items: center; gap: .75rem; }
-      header { justify-content: space-between; }
+      html, body { background: transparent; }
+      body { margin: 0; }
+      main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+      article {
+        position: relative;
+        padding: 1.15rem 1.25rem 1.2rem;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: linear-gradient(165deg, rgba(24, 38, 46, 0.92), rgba(13, 21, 27, 0.94));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        overflow: hidden;
+      }
+      article::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(142, 230, 213, 0.3), transparent);
+      }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
       h2, p { margin: 0; }
-      h2 { font-size: 1rem; font-weight: 650; }
-      .protocol { color: #b1bec6; font: .75rem "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; }
-      .reading { margin: 2.4rem 0 .65rem; font-size: clamp(1.6rem, 4vw, 2.35rem); font-weight: 550; letter-spacing: -.045em; }
-      .reading::before { content: ""; flex: none; width: .65rem; height: .65rem; border-radius: 50%; background: #99a5ad; }
-      .good::before { background: #96e5d4; box-shadow: 0 0 0 4px #88d4c215; }
-      .bad::before { background: #f6a383; }
-      .detail { color: #b1bec6; font-size: .9rem; line-height: 1.55; }
+      h2 { font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em; }
+      .protocol {
+        flex: none;
+        padding: 0.24rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(8, 14, 18, 0.6);
+        color: var(--faint);
+        font: 0.6rem/1 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+        letter-spacing: 0.14em;
+      }
+      .reading {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        margin: 1.1rem 0 1.3rem;
+        font-size: clamp(1.4rem, 3.4vw, 1.75rem);
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+      .reading::before {
+        content: "";
+        flex: none;
+        width: 0.6rem;
+        height: 0.6rem;
+        border-radius: 50%;
+        background: #7d8f96;
+        box-shadow: 0 0 0 4px rgba(125, 143, 150, 0.12);
+      }
+      .good::before { background: var(--accent); box-shadow: 0 0 0 4px rgba(94, 201, 182, 0.14), 0 0 14px rgba(94, 201, 182, 0.65); }
+      .bad::before { background: var(--bad); box-shadow: 0 0 0 4px rgba(243, 161, 132, 0.14), 0 0 14px rgba(243, 161, 132, 0.5); }
+      .detail {
+        padding-top: 0.85rem;
+        border-top: 1px solid var(--line-soft);
+        color: var(--faint);
+        font-size: 0.78rem;
+        line-height: 1.55;
+      }
       @media (max-width: 42rem) {
-        main { grid-template-columns: 1fr; }
-        .reading { margin-top: 1.6rem; }
+        main { grid-template-columns: 1fr; gap: 0.75rem; }
+        .reading { margin: 0.9rem 0 1.1rem; }
       }
     </style>
   </head>

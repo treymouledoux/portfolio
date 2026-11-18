@@ -7,71 +7,160 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #eff4f5;
-        background: #0b1014;
-        --muted: #b1bec6;
-        --line: #34414a;
-        --accent: #96e5d4;
-        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+        --bg: #070b0e;
+        --line: #1f2e36;
+        --line-soft: #18242c;
+        --line-strong: #2e434e;
+        --text: #e8f1f3;
+        --muted: #9fb2ba;
+        --faint: #778b94;
+        --accent: #8ee6d5;
+        --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+        color: var(--text);
+        background-color: var(--bg);
       }
       * { box-sizing: border-box; }
       body {
-        min-height: 100vh;
         margin: 0;
-        background-image: linear-gradient(#8fb9c307 1px, transparent 1px),
-                          linear-gradient(90deg, #8fb9c307 1px, transparent 1px),
-                          radial-gradient(ellipse at 85% 0, #172b2f, transparent 56%);
-        background-size: 44px 44px, 44px 44px, auto;
+        min-height: 100vh;
+        background-color: var(--bg);
+        background-image:
+          radial-gradient(58rem 30rem at 82% -14%, rgba(62, 168, 151, 0.17), transparent 64%),
+          radial-gradient(42rem 26rem at 4% 4%, rgba(43, 104, 125, 0.12), transparent 70%),
+          linear-gradient(to right, rgba(148, 190, 196, 0.035) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(148, 190, 196, 0.035) 1px, transparent 1px);
+        background-size: auto, auto, 48px 48px, 48px 48px;
       }
-      .wrap { width: min(100% - 2.5rem, 62rem); margin-inline: auto; }
-      header { border-bottom: 1px solid var(--line); }
-      .bar, .brand, nav, .section-heading, .console { display: flex; align-items: center; gap: 1rem; }
-      .bar, .section-heading { justify-content: space-between; }
-      .bar { min-height: 4.5rem; flex-wrap: wrap; padding-block: .75rem; }
-      .brand { gap: .75rem; color: inherit; font-weight: 650; text-decoration: none; }
-      .monogram, .terminal { display: grid; flex: none; place-items: center; color: var(--accent); }
+      .wrap { width: min(100% - 2.25rem, 60rem); margin-inline: auto; }
+      .masthead {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--line-soft);
+        background: rgba(7, 11, 14, 0.76);
+        -webkit-backdrop-filter: blur(14px) saturate(130%);
+        backdrop-filter: blur(14px) saturate(130%);
+      }
+      .masthead-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 4.25rem; flex-wrap: wrap; padding-block: 0.65rem; }
+      .brand { display: flex; align-items: center; gap: 0.8rem; color: inherit; text-decoration: none; }
       .monogram {
-        width: 2.2rem; height: 2.2rem; border: 1px solid #60958d; border-radius: .55rem;
-        font: 700 1.1rem var(--mono); letter-spacing: -.1em; padding-right: .1em;
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 2.35rem;
+        height: 2.35rem;
+        padding-right: 0.1em;
+        border: 1px solid rgba(142, 230, 213, 0.32);
+        border-radius: 0.7rem;
+        background: linear-gradient(160deg, rgba(142, 230, 213, 0.16), rgba(142, 230, 213, 0.03));
+        box-shadow: 0 0 22px rgba(94, 201, 182, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        color: var(--accent);
+        font: 700 1rem/1 var(--mono);
+        letter-spacing: -0.08em;
       }
-      nav { gap: 1.25rem; }
-      nav a { padding-block: .65rem; color: var(--muted); font-size: .9rem; text-decoration: none; }
-      nav a[aria-current="page"], a:hover { color: var(--accent); }
-      :focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
-      main { padding-block: clamp(2.5rem, 8vw, 5.75rem); }
+      .brand-text { display: flex; flex-direction: column; gap: 0.3rem; line-height: 1; }
+      .brand-text strong { font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em; }
+      .brand-text small { color: var(--faint); font: 0.66rem/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; }
+      nav { display: flex; align-items: center; gap: 0.25rem; padding: 0.22rem; border: 1px solid var(--line); border-radius: 0.7rem; background: rgba(18, 29, 36, 0.7); }
+      nav a {
+        padding: 0.45rem 0.8rem;
+        border-radius: 0.5rem;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: color 0.15s ease, background-color 0.15s ease;
+      }
+      nav a:hover { color: var(--text); background: rgba(46, 67, 78, 0.5); }
+      nav a[aria-current="page"] { color: var(--text); background: rgba(46, 67, 78, 0.75); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+      :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 0.45rem; }
+      ::selection { background: rgba(94, 201, 182, 0.25); color: #f2fbf9; }
+      main { padding-block: clamp(2rem, 6vw, 3.5rem) clamp(2.5rem, 7vw, 4rem); }
       h1, h2, h3, p { margin: 0; }
-      h1 { margin-bottom: clamp(2rem, 5vw, 3.6rem); font-size: clamp(2.4rem, 8vw, 4.3rem); line-height: 1.04; letter-spacing: -.06em; }
-      h2 { font-size: 1.25rem; letter-spacing: -.025em; }
-      h3 { font-size: 1rem; font-weight: 650; }
-      .section-heading { margin-bottom: 1rem; min-height: 2.75rem; }
+      .page-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        padding-bottom: 1.6rem;
+        border-bottom: 1px solid var(--line-soft);
+        margin-bottom: 2.25rem;
+      }
+      .eyebrow { margin-bottom: 0.6rem; color: var(--accent); font: 0.66rem/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.9; }
+      h1 { font-size: clamp(1.85rem, 4.2vw, 2.6rem); font-weight: 600; line-height: 1.06; letter-spacing: -0.035em; }
+      .lede { margin-top: 0.7rem; max-width: 34rem; color: var(--muted); font-size: 0.88rem; line-height: 1.6; }
       .refresh {
-        display: inline-flex; align-items: center; min-height: 2.75rem; padding: .6rem .95rem;
-        border: 1px solid #54716f; border-radius: .55rem; color: #e4f4f0; background: #1d302f;
-        font-size: .85rem; font-weight: 600; text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 2.6rem;
+        padding: 0.55rem 0.95rem;
+        border: 1px solid var(--line-strong);
+        border-radius: 0.7rem;
+        background: linear-gradient(180deg, #17242c, #101a20);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        font-size: 0.8rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: border-color 0.15s ease;
       }
-      .refresh:hover { border-color: var(--accent); background: #263f3c; }
-      iframe { display: block; width: 100%; height: 15rem; border: 0; color-scheme: normal; }
-      .console-section { margin-top: 2rem; }
-      .console { margin-top: 1.25rem; padding: 1.5rem; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 1rem; background: #121b21; }
-      .terminal { width: 2.75rem; height: 2.75rem; border: 1px solid var(--line); border-radius: .6rem; font: 600 1rem var(--mono); }
+      .refresh:hover { border-color: rgba(142, 230, 213, 0.45); background: linear-gradient(180deg, #1c2d36, #122029); }
+      .refresh svg { width: 0.95rem; height: 0.95rem; flex: none; color: var(--accent); }
+      h2 { margin-bottom: 0.9rem; color: var(--muted); font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
+      iframe { display: block; width: 100%; height: 11.5rem; border: 0; color-scheme: normal; }
+      .console-section { margin-top: 2.6rem; }
+      .console {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1.3rem 1.35rem;
+        border: 1px solid var(--line);
+        border-radius: 1.05rem;
+        background: linear-gradient(165deg, rgba(24, 38, 46, 0.72), rgba(12, 20, 25, 0.94));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+      .terminal {
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 2.5rem;
+        height: 2.5rem;
+        border: 1px solid var(--line-strong);
+        border-radius: 0.6rem;
+        background: rgba(7, 13, 17, 0.85);
+        color: var(--accent);
+        font: 600 0.9rem/1 var(--mono);
+      }
       .console-copy { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
-      .console-copy p { margin-top: .35rem; color: var(--muted); font-size: .9rem; line-height: 1.55; }
-      code { display: block; margin-top: .8rem; padding: .7rem .9rem; border: 1px solid var(--line); border-radius: .5rem; color: var(--accent); background: #0d151a; font: .87rem/1.5 var(--mono); }
-      @media (max-width: 44.5rem) {
-        iframe { height: 24.5rem; }
-        .console { align-items: flex-start; }
+      .console-copy h3 { font-size: 0.95rem; font-weight: 600; letter-spacing: -0.01em; }
+      .console-copy p { margin-top: 0.35rem; color: var(--muted); font-size: 0.83rem; line-height: 1.65; }
+      code {
+        display: block;
+        margin-top: 0.95rem;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid var(--line);
+        border-radius: 0.45rem;
+        background: rgba(6, 11, 14, 0.85);
+        color: var(--accent);
+        overflow-wrap: anywhere;
+        font: 0.82rem/1.55 var(--mono);
       }
-      @media (max-width: 28rem) {
-        .bar { row-gap: 0; }
-        iframe { height: 26rem; }
+      code::before { content: "$ "; color: var(--faint); }
+      /* The frame stacks its cards below 42rem of its own width, which is
+         44.25rem of page width once the wrapper padding is removed. */
+      @media (max-width: 44.25rem) {
+        iframe { height: 23rem; }
       }
     </style>
   </head>
   <body>
-    <header>
-      <div class="wrap bar">
-        <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span>Trey Mouledoux</a>
+    <header class="masthead">
+      <div class="wrap masthead-inner">
+        <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span><span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span></a>
         <nav aria-label="Dashboard">
           <a href="/dashboard" aria-current="page">Overview</a>
           <a href="/dashboard/messages">Messages</a>
@@ -79,12 +168,23 @@
       </div>
     </header>
     <main class="wrap">
-      <h1>Tailnet dashboard</h1>
-      <section aria-labelledby="services">
-        <div class="section-heading">
-          <h2 id="services">Service status</h2>
-          <a class="refresh" href="/dashboard">Refresh status</a>
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">Overview</p>
+          <h1>Tailnet dashboard</h1>
+          <p class="lede">Service telemetry and secure internal access across the mesh.</p>
         </div>
+        <a class="refresh" href="/dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20.5 12a8.5 8.5 0 0 1-14.5 6"/>
+            <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6"/>
+            <path d="M18 3.4v3.2h-3.2M6 20.6v-3.2h3.2"/>
+          </svg>
+          Refresh status
+        </a>
+      </div>
+      <section aria-labelledby="services">
+        <h2 id="services">Service status</h2>
         <iframe title="Private service status" sandbox="" referrerpolicy="no-referrer"
           src="https://status.example.invalid:8443/embed/status"></iframe>
       </section>

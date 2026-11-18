@@ -27,9 +27,9 @@ const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-YwH1UcAmudMhhXi7pBrcQFrhe2CZ+Q7B3nQnryPEUQA='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
+const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-usz0I4gQiTPq2ibztldplQpcGzVkdw75baH2cGf/CdQ='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-frwnsDNi7k5Sd6J92gjF05PI/gDtXTTagtyLy79PJJI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-u2KwfkfAeiEf84Q2zHM0sECreg3LrfpfSvQcCa4JYjI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]

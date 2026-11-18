@@ -7,46 +7,84 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #eff4f5;
-        background: #0b1014;
-        --muted: #b1bec6;
-        --line: #34414a;
-        --accent: #96e5d4;
-        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+        --bg: #070b0e;
+        --line: #1f2e36;
+        --line-soft: #18242c;
+        --text: #e8f1f3;
+        --muted: #9fb2ba;
+        --faint: #778b94;
+        --accent: #8ee6d5;
+        --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+        color: var(--text);
+        background-color: var(--bg);
       }
       * { box-sizing: border-box; }
       body {
+        display: flex;
+        flex-direction: column;
         min-height: 100vh;
         margin: 0;
-        background-image: linear-gradient(#8fb9c307 1px, transparent 1px),
-                          linear-gradient(90deg, #8fb9c307 1px, transparent 1px),
-                          radial-gradient(ellipse at 85% 0, #172b2f, transparent 56%);
-        background-size: 44px 44px, 44px 44px, auto;
+        background-color: var(--bg);
+        background-image:
+          radial-gradient(58rem 30rem at 82% -14%, rgba(62, 168, 151, 0.17), transparent 64%),
+          linear-gradient(to right, rgba(148, 190, 196, 0.035) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(148, 190, 196, 0.035) 1px, transparent 1px);
+        background-size: auto, 48px 48px, 48px 48px;
+        background-attachment: fixed;
       }
-      .wrap { width: min(100% - 2.5rem, 62rem); margin-inline: auto; }
-      header { border-bottom: 1px solid var(--line); }
-      .bar, .brand, nav { display: flex; align-items: center; gap: 1rem; }
-      .bar { justify-content: space-between; }
-      .bar { min-height: 4.5rem; flex-wrap: wrap; padding-block: .75rem; }
-      .brand { gap: .75rem; color: inherit; font-weight: 650; text-decoration: none; }
-      .monogram { display: grid; flex: none; place-items: center; color: var(--accent); }
+      .wrap { width: min(100% - 2.25rem, 60rem); margin-inline: auto; }
+      .masthead {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--line-soft);
+        background: rgba(7, 11, 14, 0.76);
+        -webkit-backdrop-filter: blur(14px) saturate(130%);
+        backdrop-filter: blur(14px) saturate(130%);
+      }
+      .masthead-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 4.25rem; flex-wrap: wrap; padding-block: 0.65rem; }
+      .brand { display: flex; align-items: center; gap: 0.8rem; color: inherit; text-decoration: none; }
       .monogram {
-        width: 2.2rem; height: 2.2rem; border: 1px solid #60958d; border-radius: .55rem;
-        font: 700 1.1rem var(--mono); letter-spacing: -.1em; padding-right: .1em;
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 2.35rem;
+        height: 2.35rem;
+        padding-right: 0.1em;
+        border: 1px solid rgba(142, 230, 213, 0.32);
+        border-radius: 0.7rem;
+        background: linear-gradient(160deg, rgba(142, 230, 213, 0.16), rgba(142, 230, 213, 0.03));
+        box-shadow: 0 0 22px rgba(94, 201, 182, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        color: var(--accent);
+        font: 700 1rem/1 var(--mono);
+        letter-spacing: -0.08em;
       }
-      nav { gap: 1.25rem; }
-      nav a { padding-block: .65rem; color: var(--muted); font-size: .9rem; text-decoration: none; }
-      nav a[aria-current="page"], a:hover { color: var(--accent); }
-      :focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
-      .inbox { display: block; width: 100%; height: calc(100dvh - 5rem); min-height: 24rem; border: 0; }
-      @media (max-width: 28rem) { .bar { row-gap: 0; } }
+      .brand-text { display: flex; flex-direction: column; gap: 0.3rem; line-height: 1; }
+      .brand-text strong { font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em; }
+      .brand-text small { color: var(--faint); font: 0.66rem/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; }
+      nav { display: flex; align-items: center; gap: 0.25rem; padding: 0.22rem; border: 1px solid var(--line); border-radius: 0.7rem; background: rgba(18, 29, 36, 0.7); }
+      nav a {
+        padding: 0.45rem 0.8rem;
+        border-radius: 0.5rem;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: color 0.15s ease, background-color 0.15s ease;
+      }
+      nav a:hover { color: var(--text); background: rgba(46, 67, 78, 0.5); }
+      nav a[aria-current="page"] { color: var(--text); background: rgba(46, 67, 78, 0.75); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+      :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 0.45rem; }
+      main { flex: 1; min-height: 0; padding-block: clamp(0.9rem, 2.5vw, 1.4rem); }
+      .inbox { display: block; width: 100%; height: 100%; min-height: 30rem; border: 0; color-scheme: normal; }
+      @media (max-width: 28rem) { .masthead-inner { row-gap: 0; } }
     </style>
   </head>
   <body>
-    <header>
-      <div class="wrap bar">
-        <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span>Trey Mouledoux</a>
+    <header class="masthead">
+      <div class="wrap masthead-inner">
+        <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span><span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span></a>
         <nav aria-label="Dashboard">
           <a href="/dashboard">Overview</a>
           <a href="/dashboard/messages" aria-current="page">Messages</a>

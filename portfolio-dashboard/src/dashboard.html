@@ -10,15 +10,31 @@
   </head>
   <body>
     <header class="masthead">
-      <div class="wrap brand"><span class="monogram" aria-hidden="true">tm</span>Trey Mouledoux</div>
+      <div class="wrap masthead-inner">
+        <div class="brand">
+          <span class="monogram" aria-hidden="true">tm</span>
+          <span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span>
+        </div>
+      </div>
     </header>
     <main class="wrap">
-      <h1>Tailnet dashboard</h1>
-      <section aria-labelledby="services">
-        <div class="section-heading">
-          <h2 id="services">Service status</h2>
-          <button type="button" id="refresh" hidden>Refresh status</button>
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">Overview</p>
+          <h1>Tailnet dashboard</h1>
+          <p class="lede">Service telemetry and secure internal access across the mesh.</p>
         </div>
+        <button type="button" id="refresh" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20.5 12a8.5 8.5 0 0 1-14.5 6"/>
+            <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6"/>
+            <path d="M18 3.4v3.2h-3.2M6 20.6v-3.2h3.2"/>
+          </svg>
+          Refresh status
+        </button>
+      </div>
+      <section aria-labelledby="services">
+        <h2 id="services">Service status</h2>
         <div class="cards">
           <article>
             <div class="card-heading"><h3>Portfolio website</h3><span class="protocol">HTTPS</span></div>
@@ -32,7 +48,7 @@
           </article>
         </div>
         <p class="footnote" id="receipt" role="status" aria-live="polite"></p>
-        <noscript><p>Enable JavaScript to load service status.</p></noscript>
+        <noscript><p class="footnote">Enable JavaScript to load service status.</p></noscript>
       </section>
       <section class="console-section" aria-labelledby="ssh">
         <h2 id="ssh">Remote access</h2>
