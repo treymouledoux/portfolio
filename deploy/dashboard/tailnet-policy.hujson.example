@@ -7,11 +7,13 @@
   "hosts": {
     "operator-v4": "APPROVED_OPERATOR_TAILNET_IPV4",
     "operator-v6": "APPROVED_OPERATOR_TAILNET_IPV6",
+    "portfolio-resolver": "PI_TAILNET_IPV4",
     "dashboard-kvm": "JETKVM_TAILNET_IPV4",
     "view-device-v4": "APPROVED_WORKSTATION_TAILNET_IPV4",
     "view-device-v6": "APPROVED_WORKSTATION_TAILNET_IPV6",
   },
   "grants": [
+    {"src": ["autogroup:member", "tag:ci"], "dst": ["portfolio-resolver"], "ip": ["tcp:53", "udp:53"]},
     {"src": ["view-device-v4", "view-device-v6"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:443", "tcp:8443"]},
     {"src": ["tag:dashboard-pi"], "dst": ["dashboard-kvm"], "ip": ["tcp:JETKVM_PORT"]},
     {"src": ["operator-v4", "operator-v6"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:22"]},
@@ -29,6 +31,8 @@
     },
   ],
   "tests": [
+    {"src": "tag:ci", "proto": "udp", "accept": ["portfolio-resolver:53"]},
+    {"src": "tag:ci", "proto": "tcp", "accept": ["portfolio-resolver:53"]},
     {"src": "view-device-v4", "proto": "tcp", "accept": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443"], "deny": ["tag:dashboard-pi:2222"]},
     {"src": "view-device-v6", "proto": "tcp", "accept": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443"]},
     {"src": "dashboard-kvm", "deny": ["tag:dashboard-pi:443", "tag:dashboard-pi:8443", "tag:dashboard-pi:2222", "tag:dashboard-pi:22"]},

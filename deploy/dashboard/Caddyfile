@@ -7,22 +7,23 @@
 	}
 }
 
+# Restore an allowlisted field only when its saved value is nonempty. An
+# empty Range header has different HTTP semantics from no Range header.
+(restore_public_header) {
+	@has_{args[0]} vars_regexp {http.vars.public_{args[0]}} .
+	request_header @has_{args[0]} {args[0]} {http.vars.public_{args[0]}}
+}
+
 (public_upstream) {
 	# The origin and Host are fixed. Only explicitly listed request fields
 	# reach the public application. It cannot use this connection to Serve.
 	transport http {
 		dial_timeout 3s
 		response_header_timeout 15s
+		compression off
 	}
-	header_up -*
+	header_up -X-Forwarded-*
 	header_up Host treymouledoux.me
-	header_up Accept {http.request.header.Accept}
-	header_up Accept-Encoding {http.request.header.Accept-Encoding}
-	header_up Content-Type {http.request.header.Content-Type}
-	header_up Range {http.request.header.Range}
-	header_up If-Range {http.request.header.If-Range}
-	header_up If-Modified-Since {http.request.header.If-Modified-Since}
-	header_up If-None-Match {http.request.header.If-None-Match}
 	header_down -Set-Cookie
 	header_down -Alt-Svc
 }
@@ -71,6 +72,25 @@ https://treymouledoux.me {
 				replace_status 403
 			}
 		}
+		# Snapshot the public fields, clear the original headers, and restore
+		# only fields the client actually sent before calling the public app.
+		vars {
+			public_Accept {http.request.header.Accept}
+			public_Accept-Encoding {http.request.header.Accept-Encoding}
+			public_Content-Type {http.request.header.Content-Type}
+			public_Range {http.request.header.Range}
+			public_If-Range {http.request.header.If-Range}
+			public_If-Modified-Since {http.request.header.If-Modified-Since}
+			public_If-None-Match {http.request.header.If-None-Match}
+		}
+		request_header -*
+		import restore_public_header Accept
+		import restore_public_header Accept-Encoding
+		import restore_public_header Content-Type
+		import restore_public_header Range
+		import restore_public_header If-Range
+		import restore_public_header If-Modified-Since
+		import restore_public_header If-None-Match
 		handle @contact {
 			request_body {
 				max_size 64KiB

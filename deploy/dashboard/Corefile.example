@@ -1,8 +1,9 @@
-# On the Pi, bind the restricted nameserver to tailscale0 only. Replace
-# the documentation addresses in the view with individually approved client
-# addresses (/32 or /128). Keep this list in host-local configuration.
+# Replace both bind directives with the same literal Pi tailnet IPs. Omit
+# an unused family from both. Literal addresses fail to bind if unavailable.
+# Replace the view's /32 and /128 with individually approved client IPs.
+# CoreDNS reads the direct DNS packet source; shared resolvers obscure it.
 treymouledoux.me:53 {
-    bind tailscale0
+    bind 192.0.2.1 2001:db8::1
     view dashboard_viewers {
         expr incidr(client_ip(), '192.0.2.10/32') || incidr(client_ip(), '2001:db8::10/128')
     }
@@ -33,6 +34,6 @@ treymouledoux.me:53 {
 
 # Other direct tailnet clients get ordinary public DNS for this zone.
 treymouledoux.me:53 {
-    bind tailscale0
+    bind 192.0.2.1 2001:db8::1
     forward . /etc/portfolio-dns/public-resolv.conf
 }

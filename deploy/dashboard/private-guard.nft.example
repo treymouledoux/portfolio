@@ -3,19 +3,26 @@ table inet portfolio_private_guard {
     chain input {
         type filter hook input priority -5; policy accept;
         iifname != "tailscale0" tcp dport { 443, 8443, 2222 } drop
-        iifname != "tailscale0" meta l4proto { tcp, udp } th dport 53 drop
+        # tailscaled on this Pi can query its own restricted resolver over loopback.
+        iifname != { "lo", "tailscale0" } meta l4proto { tcp, udp } th dport 53 drop
         iifname != "lo" tcp dport { 6050, 83 } drop
         udp dport { 443, 8443 } drop
     }
 
     chain output {
         type filter hook output priority -5; policy accept;
+        oifname "lo" tcp dport 83 jump apex_http01
         ct direction reply ct state established,related accept
         meta skuid { "caddy", "portfolio-tunnel", "portfolio-deploy" } ip daddr 127.0.0.1 tcp dport 6050 accept
-        meta skuid "portfolio-tunnel" ip daddr 127.0.0.1 tcp dport 83 accept
         @DNS_RULES@
         @KVM_RULE@
         meta skuid { "caddy", "portfolio-public", "portfolio-dashboard", "portfolio-dns", "portfolio-tunnel", "portfolio-deploy" } jump pilot_egress
+    }
+
+    # The private apex services verify this full-stage chain at startup.
+    chain apex_http01 {
+        meta skuid "portfolio-tunnel" ip daddr 127.0.0.1 tcp dport 83 accept
+        reject
     }
 
     @PILOT_EGRESS@

@@ -1,0 +1,41 @@
+[Unit]
+Description=Split DNS for the portfolio domain
+BindsTo=sys-subsystem-net-devices-tailscale0.device
+Requires=portfolio-dashboard-guard.service
+After=portfolio-dashboard-guard.service sys-subsystem-net-devices-tailscale0.device tailscaled.service portfolio-gateway.service
+
+[Service]
+Type=exec
+User=portfolio-dns
+Group=portfolio-dns
+ExecStartPre=+/usr/sbin/nft list chain inet portfolio_private_guard apex_http01
+ExecStart=/usr/local/libexec/portfolio-coredns -conf /etc/portfolio-dns/Corefile
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+SocketBindDeny=any
+# Numeric upstreams use connect(2) with kernel-selected source ports. Keep
+# the CoreDNS forwarder's local source address unset.
+SocketBindAllow=ipv4:tcp:53
+SocketBindAllow=ipv4:udp:53
+SocketBindAllow=ipv6:tcp:53
+SocketBindAllow=ipv6:udp:53
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+InaccessiblePaths=-/run/tailscale -/run/portfolio-dashboard -/etc/portfolio-dashboard -/etc/portfolio-public -/etc/caddy -/etc/letsencrypt -/var/lib/tailscale -/var/lib/portfolio-public -/srv/portfolio/public -/etc/ssh -/etc/credstore
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+LimitCORE=0
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+UMask=0077
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=sys-subsystem-net-devices-tailscale0.device

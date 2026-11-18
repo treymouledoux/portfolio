@@ -37,7 +37,7 @@ class HostGuard(unittest.TestCase):
         rules = guard.render("pilot", self.inventory)
         self.assertIn('meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr 100.100.0.14 tcp dport 443 accept', rules)
         self.assertIn('oifname != "tailscale0" ip daddr { 192.168.19.1 }', rules)
-        self.assertIn('iifname != "tailscale0" meta l4proto { tcp, udp } th dport 53 drop', rules)
+        self.assertIn('iifname != { "lo", "tailscale0" } meta l4proto { tcp, udp } th dport 53 drop', rules)
         self.assertIn('meta skuid "portfolio-tunnel" ip daddr 127.0.0.1 tcp dport 83 accept', rules)
         self.assertIn('"portfolio-dns" } oifname != "tailscale0"', rules)
         self.assertIn('meta skuid "portfolio-tunnel" ip daddr { 8.8.8.8 } meta l4proto { tcp, udp } th dport 7844', rules)
