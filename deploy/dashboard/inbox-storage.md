@@ -18,7 +18,7 @@ install -m 0644 portfolio-contact-store.conf /etc/systemd/system/portfolio.servi
 install -m 0644 portfolio-inbox.conf /etc/systemd/system/portfolio-dashboard.service.d/inbox.conf
 ```
 
-In the root-owned dashboard environment file, set `DASHBOARD_INBOX_READERS` and `DASHBOARD_INBOX_ADMINS` to the approved exact human identities. The groups are distinct. An administrator must also qualify to view and read the inbox. Keep its existing mode 0600.
+In the root-owned dashboard environment file, set `DASHBOARD_INBOX_READERS` and `DASHBOARD_INBOX_ADMINS` to the approved exact human identities. Set `DASHBOARD_ADMIN_ORIGIN` to the exact HTTPS Serve origin including port 8443. An administrator must also qualify to view and read the inbox. Keep the environment file mode 0600.
 
 Schedule a short cutover and wait for any pending public release. Install the two reviewed binaries before starting the new units. A bare restart with the old public binary does not implement the shared lock protocol.
 
