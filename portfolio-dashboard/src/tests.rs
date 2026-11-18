@@ -4,6 +4,7 @@ use tower::ServiceExt;
 
 const OWNER: &str = "owner@example.test";
 const PI_FIXTURE: &str = "example-pi";
+const SSH_USER: &str = "example-operator";
 
 fn fixture(pi_machine: Option<String>) -> Router {
     let (_, status) = watch::channel(Status {
@@ -13,6 +14,7 @@ fn fixture(pi_machine: Option<String>) -> Router {
     app(App {
         viewers: Arc::new(parse_viewers(OWNER).unwrap()),
         status,
+        pi_ssh_user: pi_machine.as_ref().map(|_| SSH_USER.to_owned()),
         pi_machine,
     })
 }
@@ -37,13 +39,28 @@ fn rejects_missing_or_ambiguous_configuration() {
         "a.b",
         " x",
         "not/a/name",
+        "pi.ts.net",
+        "pi.example.com",
+        "pi.bad-.ts.net",
+        "pi.test.ts.net/other",
         &"x".repeat(64),
     ] {
         assert!(pi_machine(name.into()).is_err(), "{name}");
     }
-    for name in ["1", "pi-2", &"a".repeat(63)] {
+    for name in ["1", "pi-2", "pi.test.ts.net", &"a".repeat(63)] {
         assert_eq!(pi_machine(name.into()).unwrap(), name);
     }
+    for name in [
+        "",
+        "root",
+        "-o",
+        "operator@host",
+        "two words",
+        &"x".repeat(33),
+    ] {
+        assert!(pi_ssh_user(name.into()).is_err(), "{name}");
+    }
+    assert_eq!(pi_ssh_user(SSH_USER.into()).unwrap(), SSH_USER);
     for value in [
         "",
         " ",
@@ -154,7 +171,7 @@ async fn only_fixed_status_is_returned_without_writes_or_cors() {
     let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
-        serde_json::json!({"website": "healthy", "jetkvm": "unavailable", "pi_machine": PI_FIXTURE})
+        serde_json::json!({"website": "healthy", "jetkvm": "unavailable", "pi_machine": PI_FIXTURE, "pi_ssh_user": SSH_USER})
     );
     for path in ["/", "/dashboard.css", "/dashboard.js"] {
         let response = call("GET", path, &headers).await;
@@ -215,7 +232,7 @@ async fn frames_are_limited_to_the_two_statuses_and_exact_parent() {
         !body.contains("{{")
             && !body.contains("<script")
             && !body.contains(PI_FIXTURE)
-            && !body.contains("login.tailscale.com")
+            && !body.contains(SSH_USER)
     );
     for path in ["/api/status", "/dashboard.js"] {
         assert_eq!(

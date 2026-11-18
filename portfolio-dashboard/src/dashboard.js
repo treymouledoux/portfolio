@@ -5,6 +5,7 @@ const receipt = document.querySelector("#receipt");
 const website = document.querySelector("#website");
 const jetkvm = document.querySelector("#jetkvm");
 const piMachine = document.querySelector("#pi-machine");
+const sshCommand = document.querySelector("#ssh-command");
 const localTime = new Intl.DateTimeFormat(undefined, {timeStyle: "medium"});
 
 function setReading(element, label, state = "unknown") {
@@ -15,6 +16,9 @@ function setReading(element, label, state = "unknown") {
 function showSnapshot(snapshot) {
   piMachine.textContent = typeof snapshot.pi_machine === "string" && snapshot.pi_machine.length > 0
     ? snapshot.pi_machine : "the Pi";
+  const configured = Boolean(snapshot.pi_machine && snapshot.pi_ssh_user);
+  sshCommand.textContent = configured ? `ssh ${snapshot.pi_ssh_user}@${snapshot.pi_machine}` : "";
+  sshCommand.hidden = !configured;
   if (snapshot.website === "healthy") {
     setReading(website, "Healthy", "good");
   } else if (snapshot.website === "unavailable") {
@@ -34,7 +38,7 @@ function showSnapshot(snapshot) {
 async function refresh() {
   if (button.disabled) return;
   button.disabled = true;
-  piMachine.textContent = "the Pi";
+  showSnapshot({});
   receipt.textContent = "Loading the latest checks…";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);

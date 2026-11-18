@@ -33,12 +33,12 @@ h3 { font-size: 1rem; font-weight: 650; }
 .section-heading, .card-heading, .console { display: flex; align-items: center; gap: 1rem; }
 .section-heading, .card-heading { justify-content: space-between; }
 .section-heading { margin-bottom: 1rem; min-height: 2.75rem; }
-button, .console a {
+button {
   min-height: 2.75rem; padding: .6rem .95rem; border: 1px solid #54716f; border-radius: .55rem;
   color: #e4f4f0; background: #1d302f;
   font-family: inherit; font-size: .85rem; font-weight: 600; line-height: 1.45; cursor: pointer;
 }
-button:hover, .console a:hover { border-color: var(--accent); background: #263f3c; }
+button:hover { border-color: var(--accent); background: #263f3c; }
 button:disabled { cursor: wait; opacity: .7; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
@@ -54,14 +54,11 @@ article { padding: clamp(1.25rem, 3.5vw, 2rem); }
 .console-section { margin-top: 3rem; }
 .console { margin-top: 1.25rem; padding: 1.5rem; flex-wrap: wrap; }
 .terminal { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid var(--line); border-radius: .6rem; font: 600 1rem var(--mono); color: var(--accent); }
-.console-copy { flex: 1 1 14rem; }
+.console-copy { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 .console-copy p { margin-top: .35rem; }
-.console a { display: inline-flex; align-items: center; gap: .6rem; text-decoration: none; }
-.new-window { font-size: 1.1rem; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#ssh-command:not([hidden]) { display: block; margin-top: .8rem; padding: .7rem .9rem; border: 1px solid var(--line); border-radius: .5rem; color: var(--accent); background: #0d151a; font: .87rem/1.5 var(--mono); }
 @media (max-width: 42rem) {
   .cards { grid-template-columns: 1fr; }
   .reading { margin-top: 1.6rem; }
   .console { align-items: flex-start; }
-  .console a { justify-content: center; width: 100%; }
 }

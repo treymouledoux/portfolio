@@ -51,22 +51,45 @@ struct Snapshot {
     status: Status,
     #[serde(skip_serializing_if = "Option::is_none")]
     pi_machine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pi_ssh_user: Option<String>,
 }
 #[derive(Clone)]
 struct App {
     viewers: Arc<HashSet<String>>,
     status: watch::Receiver<Status>,
     pi_machine: Option<String>,
+    pi_ssh_user: Option<String>,
 }
 
 fn pi_machine(name: String) -> Result<String, &'static str> {
-    if name.is_empty()
-        || name.len() > 63
-        || name.starts_with('-')
-        || name.ends_with('-')
-        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    let valid_label = |label: &str| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    };
+    let labels: Vec<_> = name.split('.').collect();
+    if !matches!(labels.as_slice(), [machine] if valid_label(machine))
+        && !matches!(labels.as_slice(), [machine, tailnet, "ts", "net"] if valid_label(machine) && valid_label(tailnet))
     {
-        return Err("DASHBOARD_PI_MACHINE must be a short DNS label");
+        return Err("DASHBOARD_PI_MACHINE must be a short DNS label or machine.tailnet.ts.net");
+    }
+    Ok(name)
+}
+
+fn pi_ssh_user(name: String) -> Result<String, &'static str> {
+    if name == "root"
+        || name.len() > 32
+        || !name.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+        || !name
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' || c == b'-')
+    {
+        return Err("DASHBOARD_PI_SSH_USER must name a non-root local account");
     }
     Ok(name)
 }
@@ -219,6 +242,7 @@ fn app(state: App) -> Router {
                 Json(Snapshot {
                     status: *app.status.borrow(),
                     pi_machine: app.pi_machine,
+                    pi_ssh_user: app.pi_ssh_user,
                 })
             }),
         )
@@ -317,7 +341,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(env::VarError::NotPresent) => None,
         Err(error) => return Err(error.into()),
     };
-    serve(listener, viewers, jetkvm, pi_machine)
+    let pi_ssh_user = match env::var("DASHBOARD_PI_SSH_USER") {
+        Ok(value) => Some(pi_ssh_user(value)?),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    serve(listener, viewers, jetkvm, pi_machine, pi_ssh_user)
 }
 
 #[tokio::main]
@@ -326,6 +355,7 @@ async fn serve(
     viewers: HashSet<String>,
     jetkvm: SocketAddr,
     pi_machine: Option<String>,
+    pi_ssh_user: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::UnixListener::from_std(listener)?;
     let client = reqwest::Client::builder()
@@ -345,6 +375,7 @@ async fn serve(
             viewers: Arc::new(viewers),
             status,
             pi_machine,
+            pi_ssh_user,
         }),
     )
     .await?;
