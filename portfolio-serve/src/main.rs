@@ -1,5 +1,6 @@
 mod contact_mail;
 mod socials;
+mod submissions;
 
 use axum::{
     Json, Router,
@@ -19,12 +20,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{
-    fs::{File, OpenOptions},
-    io::AsyncWriteExt,
-    net::TcpListener,
-    sync::Mutex,
-};
+use submissions::Submissions;
+use tokio::{net::TcpListener, sync::Mutex};
 use tower_http::{
     compression::CompressionLayer,
     services::{ServeDir, ServeFile},
@@ -60,7 +57,7 @@ struct ClientLimit {
     seen: Instant,
 }
 struct Store {
-    file: File,
+    submissions: Submissions,
     healthy: bool,
     clients: HashMap<IpAddr, ClientLimit>,
 }
@@ -196,7 +193,7 @@ async fn contact(
         return reply(StatusCode::BAD_REQUEST, reason);
     }
     let ip = client_ip(peer, &headers, state.trust_cloudflare);
-    let mut store = state.store.lock().await;
+    let mut store = state.store.clone().lock_owned().await;
     // Recheck under the same lock as the write: concurrent requests cannot both succeed.
     if let Some(last) = store.clients.get(&ip).and_then(|c| c.last_success)
         && let Some(remaining) = COOLDOWN.checked_sub(last.elapsed())
@@ -217,25 +214,27 @@ async fn contact(
     };
     let mut line = serde_json::to_vec(&record).expect("string fields serialize");
     line.push(b'\n');
-    let result = async {
-        store.file.write_all(&line).await?;
-        store.file.flush().await?;
-        store.file.sync_data().await
-    }
+    // Keeping the guard inside the blocking task completes the durable write
+    // and updates the cooldown even if the HTTP client disconnects.
+    let result = tokio::task::spawn_blocking(move || {
+        let result = store.submissions.append(&line);
+        if result.is_ok() {
+            if let Some(client) = store.clients.get_mut(&ip) {
+                client.last_success = Some(Instant::now());
+            }
+        } else {
+            store.healthy = false;
+        }
+        result
+    })
     .await;
-    if let Err(error) = result {
-        // Avoid appending to a potentially partial record after a disk failure.
-        store.healthy = false;
-        eprintln!("failed to persist submission: {error}");
+    if !matches!(result, Ok(Ok(()))) {
+        eprintln!("failed to persist submission: {result:?}");
         return reply(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Something went wrong on our end, please try again.",
         );
     }
-    if let Some(client) = store.clients.get_mut(&ip) {
-        client.last_success = Some(Instant::now());
-    }
-    drop(store);
     println!("Contact submission saved");
     if let Some(mailer) = &state.mailer {
         mailer.notify(&record).await;
@@ -350,19 +349,17 @@ async fn health(State(state): State<AppState>) -> (StatusCode, &'static str) {
         (StatusCode::SERVICE_UNAVAILABLE, "storage unavailable")
     }
 }
-async fn open_state(data: &Path, trust_cloudflare: bool) -> std::io::Result<AppState> {
-    tokio::fs::create_dir_all(data).await?;
-    let mut options = OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let file = options.open(data.join("submissions.jsonl")).await?;
-    file.sync_all().await?;
-    #[cfg(unix)]
-    File::open(data).await?.sync_all().await?;
+async fn open_state(
+    data: &Path,
+    trust_cloudflare: bool,
+    preprovisioned: bool,
+) -> std::io::Result<AppState> {
+    let data = data.to_owned();
+    let submissions =
+        tokio::task::spawn_blocking(move || Submissions::open(&data, preprovisioned)).await??;
     Ok(AppState {
         store: Arc::new(Mutex::new(Store {
-            file,
+            submissions,
             healthy: true,
             clients: HashMap::new(),
         })),
@@ -404,7 +401,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !assets.join("index.html").is_file() || !assets.join("resume.pdf").is_file() {
         return Err("assets must contain index.html and resume.pdf".into());
     }
-    let mut state = open_state(&data, trust_cloudflare).await?;
+    let preprovisioned = match std::env::var("PORTFOLIO_PREPROVISIONED_STORE") {
+        Ok(value) => value.parse::<bool>()?,
+        Err(std::env::VarError::NotPresent) => false,
+        Err(error) => return Err(error.into()),
+    };
+    let mut state = open_state(&data, trust_cloudflare, preprovisioned).await?;
     match ContactMailer::load() {
         Ok(mailer) => state.mailer = mailer.map(Arc::new),
         Err(_) => {

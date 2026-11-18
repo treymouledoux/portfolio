@@ -12,6 +12,9 @@ chrono = "0.4.*"
 serde_json = "1.0.*"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots", "serde"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"

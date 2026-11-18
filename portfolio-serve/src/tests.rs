@@ -28,7 +28,9 @@ async fn fixture() -> (tempfile::TempDir, AppState, Router) {
     ] {
         std::fs::write(assets.join("_next/static/chunks").join(name), bytes).unwrap();
     }
-    let state = open_state(&temp.path().join("data"), false).await.unwrap();
+    let state = open_state(&temp.path().join("data"), false, false)
+        .await
+        .unwrap();
     let router = app(&assets, state.clone());
     (temp, state, router)
 }

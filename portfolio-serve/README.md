@@ -24,6 +24,7 @@ Environment variables:
 | `PORTFOLIO_BIND` | `127.0.0.1:6050` | Listening address |
 | `PORTFOLIO_ASSETS_DIR` | `assets` | Exported frontend directory; must include `index.html` and `resume.pdf` |
 | `PORTFOLIO_DATA_DIR` | `data` | Persistent private submission storage, outside the assets directory |
+| `PORTFOLIO_PREPROVISIONED_STORE` | unset/false | Require an existing regular `submissions.jsonl` and `submissions.lock` in the data directory. Enable for a broker-managed archive. |
 | `PORTFOLIO_TRUST_CLOUDFLARE` | unset/false | Honor `CF-Connecting-IP` only from loopback peers; requires a loopback listener |
 
 The production unit enables Cloudflare header trust because the local cloudflared tunnel supplies the client address. Keep the backend bound to loopback; do not enable this setting behind an untrusted proxy. Without a trusted header, limits use the socket peer address.
@@ -36,7 +37,7 @@ The production unit enables Cloudflare header trust because the local cloudflare
 - HTML and resume: `no-cache` (revalidate before reuse); ordinary images/assets: one hour; API, health, redirects and errors: `no-store`.
 - Brotli/gzip sidecars are generated at build time. Compression middleware handles remaining eligible responses. PDF and raster images are not precompressed by the build script.
 - `/api/contact`: maximum 64 KiB JSON body, five attempts per IP per minute, and one successful submission per IP per hour. Returns JSON errors and `Retry-After` for HTTP 429. Shared public IPs share limits. Limits are in-memory, reset on process restart, and track at most 4,096 clients; additional clients receive 503 until entries expire.
-- Submissions are serialized through one writer to `submissions.jsonl`, flushed and synced before success. A write failure marks storage unhealthy until restart, avoiding additional appends to a potentially partial record. Inspect/repair the last record before restarting after a disk error. Logs omit submission names, addresses, and messages.
+- Each append takes an exclusive lock on the stable `submissions.lock` file, opens the current `submissions.jsonl`, and syncs the new record before reporting success. Broker-side replacements must hold the same lock through the rename and directory sync. Preserve the lock file during rotation. A storage failure marks the writer unhealthy. Inspect and repair any incomplete final record before restarting. Subsequent appends refuse to extend an incomplete line. Logs omit submission names, addresses, and messages.
 - `/healthz`: 200 while storage is healthy; 503 after a persistence failure. SIGTERM/Ctrl-C drain active requests; systemd allows 30 seconds before forced termination.
 
 ## Contact email
