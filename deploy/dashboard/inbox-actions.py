@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Socket-activated contact erasure broker, plus local operator approval client."""
+"""Socket-activated passkey-protected contact erasure broker."""
 import contextlib
 import fcntl
 import hashlib
@@ -12,16 +12,29 @@ import re
 import secrets
 import socket
 import stat
+import sqlite3
 import struct
 import sys
 import tempfile
 import time
+from urllib.parse import urlsplit
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric import ec
+from fido2.features import webauthn_json_mapping
+from fido2.server import Fido2Server
+from fido2.webauthn import (
+    AttestedCredentialData, AuthenticationResponse, PublicKeyCredentialUserEntity,
+    RegistrationResponse, ResidentKeyRequirement, UserVerificationRequirement,
+)
+
+webauthn_json_mapping.enabled = True
 
 STORE = Path("/var/lib/portfolio-inbox-store")
 SOCKET = "/run/portfolio-inbox-actions/actions.sock"
 LINE_LIMIT = 65536
 ACTIONS = {"delete", "delete-all"}
-RECEIPT_TTL = 300
+WIRE_LIMIT = 32 * 1024
 
 
 class Stale(Exception):
@@ -99,66 +112,211 @@ def erase(directory, action, target):
             Path(temporary).unlink(missing_ok=True)
 
 
+class Rejected(ValueError):
+    def __init__(self, reason="denied"):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def hex_token(value):
+    return isinstance(value, str) and re.fullmatch("[0-9a-f]{64}", value) is not None
+
+
 class Broker:
-    def __init__(self, directory):
+    def __init__(self, directory, key_database, origin, admins, clock=time.monotonic):
+        if not re.fullmatch(r"https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+ts\.net:8443", origin):
+            raise ValueError("expected exact private dashboard HTTPS origin")
         self.directory = directory
-        self.receipts = {}
+        self.origin = origin
+        self.admins = frozenset(admins)
+        self.clock = clock
+        self.server = Fido2Server(
+            {"id": urlsplit(origin).hostname, "name": "Portfolio dashboard"},
+            verify_origin=lambda value: value == origin,
+            attestation="none",
+        )
+        self.server.timeout = 120_000
+        self.server.allowed_algorithms = [p for p in self.server.allowed_algorithms if p.alg == -7]
+        self.keys = sqlite3.connect(key_database)
+        self.keys.execute("""CREATE TABLE IF NOT EXISTS credentials (
+            login TEXT PRIMARY KEY, origin TEXT NOT NULL, handle BLOB NOT NULL,
+            credential BLOB NOT NULL, counter INTEGER NOT NULL
+        )""")
+        self.windows = {}
+        self.flows = {}
+        self.sessions = {}
+        self.holds = {}
+
+    def prune(self, now):
+        for table in (self.windows, self.flows, self.sessions, self.holds):
+            for key, values in list(table.items()):
+                if values[0] <= now:
+                    del table[key]
+
+    def credential(self, user):
+        row = self.keys.execute(
+            "SELECT origin, handle, credential, counter FROM credentials WHERE login = ?", (user,)
+        ).fetchone()
+        if row and row[0] != self.origin:
+            raise Rejected()
+        return row
+
+    def begin(self, user, enroll):
+        record = self.credential(user)
+        if enroll:
+            if user not in self.windows or record:
+                raise Rejected("closed")
+            handle = os.urandom(32)
+            options, state = self.server.register_begin(
+                PublicKeyCredentialUserEntity(id=handle, name=user, display_name=user),
+                resident_key_requirement=ResidentKeyRequirement.PREFERRED,
+                user_verification=UserVerificationRequirement.REQUIRED,
+            )
+        else:
+            if not record:
+                raise Rejected("unregistered")
+            handle = record[1]
+            options, state = self.server.authenticate_begin(
+                [AttestedCredentialData(record[2])], user_verification=UserVerificationRequirement.REQUIRED
+            )
+        if len(self.flows) >= 128:
+            raise Rejected()
+        flow = secrets.token_hex(32)
+        self.flows[flow] = (self.clock() + 120, user, enroll, state, handle)
+        return {"ok": True, "flow": flow, "publicKey": dict(options.public_key)}
+
+    def finish(self, request, user, enroll):
+        flow = self.flows.pop(request["flow"], None)
+        if not flow or (user, enroll) != flow[1:3]:
+            raise Rejected()
+        supplied = request["credential"]
+        if not isinstance(supplied, dict) or supplied.get("type") != "public-key":
+            raise Rejected()
+        if not isinstance(supplied.get("id"), str) or supplied["id"] != supplied.get("rawId"):
+            raise Rejected()
+        # Do not parse optional untrusted extension payloads; this ceremony
+        # requested none. Both verification methods still parse the signed data.
+        response = {"id": supplied["id"], "response": supplied["response"], "type": "public-key"}
+        parsed = (RegistrationResponse if enroll else AuthenticationResponse).from_dict(response)
+        client = parsed.response.client_data
+        if client.cross_origin is not False or "topOrigin" in json.loads(client):
+            raise Rejected()
+        record = self.credential(user)
+        if enroll:
+            if user not in self.windows or record:
+                raise Rejected("closed")
+            auth = self.server.register_complete(flow[3], parsed)
+            credential = auth.credential_data
+            if credential is None or credential.credential_id != parsed.id:
+                raise Rejected()
+            key = credential.public_key
+            if set(key) != {1, 3, -1, -2, -3} or (key[1], key[3], key[-1]) != (2, -7, 1):
+                raise Rejected()
+            if any(not isinstance(key[k], bytes) or len(key[k]) != 32 for k in (-2, -3)):
+                raise Rejected()
+            # Validate the enrolled point before committing the single credential.
+            ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), b"\x04" + key[-2] + key[-3])
+            with self.keys:
+                self.keys.execute("INSERT INTO credentials VALUES (?, ?, ?, ?, ?)",
+                                  (user, self.origin, flow[4], bytes(credential), auth.counter))
+            del self.windows[user]
+            # A fresh assertion proves possession before any session is issued.
+            return {"ok": True, "registered": True}
+
+        if not record or parsed.response.user_handle not in (None, record[1]):
+            raise Rejected()
+        self.server.authenticate_complete(flow[3], [AttestedCredentialData(record[2])], parsed)
+        counter = parsed.response.authenticator_data.counter
+        if (record[3] or counter) and counter <= record[3]:
+            raise Rejected()
+        with self.keys:
+            self.keys.execute("UPDATE credentials SET counter = ? WHERE login = ?", (counter, user))
+        if len(self.sessions) >= 128:
+            raise Rejected()
+        session = secrets.token_hex(32)
+        self.sessions[session] = (self.clock() + 900, user)
+        return {"ok": True, "session": session}
 
     def handle(self, request, issuer=False):
         if not isinstance(request, dict):
-            raise ValueError()
+            raise Rejected()
+        now = self.clock()
+        self.prune(now)
         action = request.get("action")
-        if action == "snapshot" and set(request) == {"action"}:
+        fields = set(request)
+        if action == "snapshot" and fields == {"action"}:
             with locked_store(self.directory, exclusive=False) as data:
                 digest, count, _ = scan(data)
             return {"ok": True, "snapshot": digest, "count": count}
+        user = request.get("user")
+        if not isinstance(user, str) or user not in self.admins:
+            raise Rejected()
+        basic = {"action", "user"}
+        if action == "open-enrollment" and issuer and fields == basic:
+            if self.credential(user):
+                raise Rejected("closed")
+            self.windows.setdefault(user, (now + 300,))
+            return {"ok": True}
+        if action in ("enroll-options", "login-options") and fields == basic:
+            return self.begin(user, action == "enroll-options")
+        if action in ("enroll-finish", "login-finish") and fields == basic | {"flow", "credential"}:
+            return self.finish(request, user, action == "enroll-finish")
 
-        target = request.get("id")
-        if not isinstance(target, str) or not re.fullmatch("[0-9a-f]{64}", target):
-            raise ValueError()
-        now = time.monotonic()
-        self.receipts = {k: v for k, v in self.receipts.items() if v[2] > now}
-        if issuer and action == "issue" and set(request) == {"action", "operation", "id"}:
-            operation = request["operation"]
-            if operation not in ACTIONS:
-                raise ValueError()
+        session = request.get("session")
+        if not hex_token(session) or self.sessions.get(session, (None, None))[1] != user:
+            raise Rejected()
+        basic.add("session")
+        if action == "session" and fields == basic:
+            return {"ok": True}
+        hold = request.get("hold")
+        if action == "cancel" and fields == basic | {"hold"}:
+            previous = self.holds.get(hold)
+            if previous and previous[1] == session:
+                del self.holds[hold]
+            return {"ok": True}
+        operation, target = request.get("operation"), request.get("id")
+        if operation not in ACTIONS or not hex_token(target):
+            raise Rejected()
+        basic.update(("operation", "id"))
+        if action == "arm" and fields == basic:
             with locked_store(self.directory, exclusive=False) as data:
                 check_target(operation, target, *scan(data, selected=target))
-            if len(self.receipts) >= 128:
-                raise OSError("too many pending approvals")
-            code = secrets.token_hex(16)
-            self.receipts[code] = (operation, target, now + RECEIPT_TTL)
-            return {"ok": True, "receipt": code}
-
-        if action not in ACTIONS or set(request) != {"action", "id", "receipt"}:
-            raise ValueError()
-        code = request["receipt"]
-        if not isinstance(code, str) or not re.fullmatch("[0-9a-f]{32}", code):
-            raise ValueError()
-        approval = self.receipts.get(code)
-        if approval is None or approval[:2] != (action, target):
-            raise ValueError()
-        del self.receipts[code]
-        erase(self.directory, action, target)
+            # Each new press invalidates earlier holds in this session.
+            for key, value in list(self.holds.items()):
+                if value[1] == session:
+                    del self.holds[key]
+            hold = secrets.token_hex(32)
+            started = self.clock()
+            self.holds[hold] = (started + 30, session, operation, target, started + 5)
+            return {"ok": True, "hold": hold}
+        if action != "commit" or fields != basic | {"hold"} or not hex_token(hold):
+            raise Rejected()
+        previous = self.holds.get(hold)
+        if not previous or previous[1:4] != (session, operation, target):
+            raise Rejected()
+        if now < previous[4]:
+            raise Rejected("early")
+        del self.holds[hold]
+        erase(self.directory, operation, target)
         return {"ok": True}
 
 
 def read_object(conn):
     raw = bytearray()
     deadline = time.monotonic() + 2
-    while len(raw) <= 1024:
+    while len(raw) <= WIRE_LIMIT:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError()
         conn.settimeout(remaining)
-        chunk = conn.recv(1025 - len(raw))
+        chunk = conn.recv(WIRE_LIMIT + 1 - len(raw))
         if not chunk:
             break
         raw.extend(chunk)
         if b"\n" in raw:
-            if not raw.endswith(b"\n") or len(raw) > 1024:
+            if not raw.endswith(b"\n") or len(raw) > WIRE_LIMIT:
                 break
-            return json.loads(raw.decode("ascii"))
+            return json.loads(raw.decode("utf-8"))
     raise ValueError()
 
 
@@ -170,7 +328,11 @@ def send(conn, body):
 def serve():
     if os.environ.get("LISTEN_PID") != str(os.getpid()) or os.environ.get("LISTEN_FDS") != "1":
         raise SystemExit("Requires its systemd socket.")
-    broker = Broker(STORE)
+    broker = Broker(
+        STORE, "/var/lib/portfolio-inbox-auth/credentials.sqlite3",
+        os.environ["DASHBOARD_ADMIN_ORIGIN"],
+        [v.strip() for v in os.environ["DASHBOARD_INBOX_ADMINS"].split(",") if v.strip()],
+    )
     # A hard power loss can leave a pre-rename temporary file. Only the
     # broker has directory write permission; clear its interrupted rewrites.
     for orphan in STORE.glob(".inbox-*"):
@@ -189,9 +351,12 @@ def serve():
                     result = broker.handle(read_object(client), issuer=uid == 0)
                 except Stale:
                     result = {"ok": False, "error": "stale"}
-                except (ValueError, TypeError, RecursionError):
+                except Rejected as e:
+                    result = {"ok": False, "error": e.reason}
+                except (ValueError, TypeError, KeyError, IndexError, RecursionError,
+                        OverflowError, AssertionError, InvalidSignature, struct.error):
                     result = {"ok": False, "error": "denied"}
-                except OSError:
+                except (OSError, sqlite3.Error):
                     result = {"ok": False, "error": "unavailable"}
                 try:
                     send(client, result)
@@ -199,23 +364,23 @@ def serve():
                     pass
 
 
-def issue(operation, target):
-    if os.geteuid() != 0 or operation not in ACTIONS or not re.fullmatch("[0-9a-f]{64}", target):
-        raise SystemExit("Run the displayed confirmation command through sudo on the Pi.")
+def open_enrollment(user):
+    if os.geteuid() != 0:
+        raise SystemExit("Open the enrollment window as the local root operator.")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
         conn.settimeout(5)
         conn.connect(SOCKET)
-        send(conn, {"action": "issue", "operation": operation, "id": target})
+        send(conn, {"action": "open-enrollment", "user": user})
         response = read_object(conn)
     if not response.get("ok"):
-        raise SystemExit("No approval issued. Refresh the selection and try again.")
-    print(response["receipt"])
+        raise SystemExit("Enrollment unavailable. Check the configured owner and existing credential.")
+    print("Initial passkey enrollment is open for up to five minutes.")
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["serve"]:
         serve()
-    elif len(sys.argv) == 4 and sys.argv[1] == "issue":
-        issue(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3 and sys.argv[1] == "open-enrollment":
+        open_enrollment(sys.argv[2])
     else:
-        raise SystemExit("Usage: portfolio-inbox-actions issue {delete|delete-all} DIGEST")
+        raise SystemExit("Usage: portfolio-inbox-actions open-enrollment OWNER_LOGIN")

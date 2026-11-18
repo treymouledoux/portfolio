@@ -138,6 +138,9 @@ fn render(page: Page, paginated: bool, admin: bool) -> String {
             "<a href=\"/messages?before={before}\">Older messages</a>"
         ));
     }
+    if admin {
+        html.push_str(r#"<a href="/messages/passkey" target="_blank" rel="noopener noreferrer">Dashboard passkey</a>"#);
+    }
     html.push_str("</nav>");
     include_str!("messages.html").replace("{{ENTRIES}}", &html)
 }

@@ -26,7 +26,7 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(4);
 const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-YwH1UcAmudMhhXi7pBrcQFrhe2CZ+Q7B3nQnryPEUQA='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-frwnsDNi7k5Sd6J92gjF05PI/gDtXTTagtyLy79PJJI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
@@ -143,7 +143,10 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
-    let action = path == "/messages/delete-all" || path.starts_with("/messages/action/");
+    let auth_api = path.starts_with("/messages/auth/");
+    let action = matches!(path, "/messages/delete-all" | "/messages/passkey")
+        || path.starts_with("/messages/action/")
+        || auth_api;
     let login = single_header(req.headers(), "tailscale-user-login");
     let allowed = login.is_some_and(|login| {
         app.viewers.contains(login)
@@ -162,7 +165,7 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
         && !matches!(site, Some("same-origin" | "none"))
         && !navigation;
     let blocked_action = action
-        && ((dest.is_some() && dest != Some("document"))
+        && ((dest.is_some() && dest != Some(if auth_api { "empty" } else { "document" }))
             || (req.method() == Method::POST
                 && (site != Some("same-origin")
                     || app.admin_origin.as_deref().is_none()
@@ -248,6 +251,30 @@ fn app(state: App) -> Router {
         .route("/embed/status", get(embed))
         .route("/messages", get(inbox::messages))
         .route("/messages/delete-all", get(inbox_actions::preview_all))
+        .route("/messages/passkey", get(inbox_actions::passkey_page))
+        .route(
+            "/messages/auth/{step}",
+            axum::routing::post(inbox_actions::auth)
+                .layer(axum::extract::DefaultBodyLimit::max(30 * 1024)),
+        )
+        .route(
+            "/passkey.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    include_str!("passkey.js"),
+                )
+            }),
+        )
+        .route(
+            "/hold-delete.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    include_str!("hold-delete.js"),
+                )
+            }),
+        )
         .route(
             "/messages/action/{action}/{id}",
             get(inbox_actions::preview_one)

@@ -37,7 +37,11 @@ jobs:
       - run: cargo test --locked
       - run: python3 ../scripts/check-dashboard-styles.py
       - run: python3 -B ../deploy/dashboard/test_host_guard.py
-      - run: python3 -B ../deploy/dashboard/test_inbox_actions.py
+      - name: Test passkey verification and contact removal
+        run: |
+          python3 -m venv "$RUNNER_TEMP/inbox-test"
+          "$RUNNER_TEMP/inbox-test/bin/pip" install 'fido2==1.2.0'
+          "$RUNNER_TEMP/inbox-test/bin/python" -B ../deploy/dashboard/test_inbox_actions.py
       - run: python3 -B ../deploy/dashboard/acme-test-install.py
       - name: Exercise gateway and split DNS with local fixtures
         shell: bash

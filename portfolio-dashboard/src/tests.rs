@@ -342,7 +342,7 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
         pi_machine: None,
         pi_ssh_user: None,
     });
-    // A malformed receipt verifies which callers reach the form handler without contacting the broker.
+    // A malformed hold verifies which callers reach the form handler without contacting the broker.
     for (user, origin, site, dest, expected) in [
         (
             OWNER,
@@ -409,7 +409,7 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
         }
         let response = router
             .clone()
-            .oneshot(req.body(Body::from("receipt=invalid")).unwrap())
+            .oneshot(req.body(Body::from("hold=invalid")).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), expected);
@@ -449,4 +449,70 @@ fn inbox_admin_forms_do_not_elevate_contact_markup_or_accept_non_hex_ids() {
     assert!(
         ACTION_CSP.contains("frame-ancestors 'none'") && ACTION_CSP.contains("form-action 'self'")
     );
+}
+
+#[tokio::test]
+async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_parsing() {
+    const ORIGIN: &str = "https://pi.example.ts.net:8443";
+    let (_, status) = watch::channel(Status {
+        website: Website::Healthy,
+        jetkvm: JetKvm::Reachable,
+    });
+    let router = app(App {
+        viewers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
+        inbox_readers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
+        inbox_admins: Arc::new(parse_viewers(OWNER).unwrap()),
+        admin_origin: Some(ORIGIN.into()),
+        status,
+        pi_machine: None,
+        pi_ssh_user: None,
+    });
+    // The invalid ceremony payload keeps this independent of any host broker or credentials.
+    for (login, origin, site, expected) in [
+        (OWNER, ORIGIN, "same-origin", StatusCode::BAD_REQUEST),
+        (
+            OWNER,
+            "https://treymouledoux.me",
+            "cross-site",
+            StatusCode::FORBIDDEN,
+        ),
+        (OWNER, "null", "same-origin", StatusCode::FORBIDDEN),
+        (
+            "reader@example.test",
+            ORIGIN,
+            "same-origin",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/messages/auth/login-finish")
+            .header("tailscale-user-login", login)
+            .header("content-type", "application/json")
+            .header("sec-fetch-dest", "empty")
+            .header("sec-fetch-site", site)
+            .header("origin", origin)
+            .body(Body::from(r#"{"flow":"bad","credential":{}}"#))
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), expected);
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+    }
+    for (user, status) in [
+        (OWNER, StatusCode::OK),
+        ("reader@example.test", StatusCode::FORBIDDEN),
+    ] {
+        let req = Request::builder()
+            .uri("/messages/passkey")
+            .header("tailscale-user-login", user)
+            .body(Body::empty())
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+    }
 }

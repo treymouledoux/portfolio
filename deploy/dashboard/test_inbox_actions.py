@@ -11,6 +11,12 @@ import sys
 import tempfile
 import threading
 import unittest
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from fido2.cose import ES256
+from fido2.utils import websafe_encode
+from fido2.webauthn import AttestationObject, AttestedCredentialData, AuthenticatorData, CollectedClientData
 from unittest import mock
 
 
@@ -47,20 +53,142 @@ class ActionsTest(unittest.TestCase):
                 patch = mock.patch.object(os, name, create=True, return_value=b"fixture")
                 patch.start()
                 self.addCleanup(patch.stop)
-        self.broker = actions.Broker(self.directory)
+        self.now = 100.0
+        self.user = "owner@example.invalid"
+        self.origin = "https://private.example.ts.net:8443"
+        self.database = self.directory / "private.db"
+        self.broker = self.start_broker()
+        self.private_key = ec.generate_private_key(ec.SECP256R1())
+        self.credential_id = os.urandom(32)
+        self.rp_hash = hashlib.sha256(b"private.example.ts.net").digest()
+        self.enroll()
+        self.session = self.login()
 
-    def approve(self, operation, target):
-        result = self.broker.handle({"action": "issue", "operation": operation, "id": target}, issuer=True)
-        return {"action": operation, "id": target, "receipt": result["receipt"]}
+    def start_broker(self):
+        broker = actions.Broker(self.directory, self.database, self.origin, {self.user}, lambda: self.now)
+        self.addCleanup(broker.keys.close)
+        return broker
+
+    def call(self, action, **kwargs):
+        return self.broker.handle({"action": action, "user": self.user, **kwargs})
+
+    def ceremony(self, kind, **overrides):
+        options = self.call(f"{kind}-options")
+        public = options["publicKey"]
+        self.assertNotIn("publicKey", public)
+        create = kind == "enroll"
+        client = CollectedClientData.create(
+            "webauthn.create" if create else "webauthn.get",
+            overrides.get("challenge", public["challenge"]),
+            overrides.get("origin", self.origin),
+            cross_origin=overrides.get("cross", False),
+        )
+        flags = 1 | (0 if overrides.get("no_uv") else 4)
+        base = {"clientDataJSON": websafe_encode(client)}
+        if create:
+            self.assertEqual(public["authenticatorSelection"]["userVerification"], "required")
+            key = ES256.from_cryptography_key(self.private_key.public_key())
+            credential = AttestedCredentialData.create(bytes(16), self.credential_id, key)
+            auth = AuthenticatorData.create(self.rp_hash, flags | 64, 0, credential)
+            base["attestationObject"] = websafe_encode(AttestationObject.create("none", auth, {}))
+        else:
+            self.assertEqual(public["userVerification"], "required")
+            self.assertEqual(public["allowCredentials"][0]["id"], websafe_encode(self.credential_id))
+            auth = AuthenticatorData.create(overrides.get("rp_hash", self.rp_hash), flags, overrides.get("counter", 0))
+            signature = self.private_key.sign(auth + client.hash, ec.ECDSA(hashes.SHA256()))
+            base.update(authenticatorData=websafe_encode(auth),
+                        signature=websafe_encode(signature if not overrides.get("bad_signature") else bytes(64)))
+        key_id = websafe_encode(self.credential_id)
+        return {"flow": options["flow"], "credential": {
+            "id": key_id, "rawId": key_id, "type": "public-key", "response": base,
+        }}
+
+    def enroll(self):
+        with self.assertRaises(actions.Rejected):
+            self.call("enroll-options")
+        open_request = {"action": "open-enrollment", "user": self.user}
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle(open_request)
+        self.broker.handle(open_request, issuer=True)
+        result = self.call("enroll-finish", **self.ceremony("enroll"))
+        self.assertEqual(result, {"ok": True, "registered": True})
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle(open_request, issuer=True)
+
+    def login(self):
+        response = self.ceremony("login")
+        session = self.call("login-finish", **response)["session"]
+        with self.assertRaises(actions.Rejected):
+            self.call("login-finish", **response)
+        return session
+
+    def approve(self, operation, target, wait=True):
+        args = {"operation": operation, "id": target, "session": self.session}
+        hold = self.call("arm", **args)["hold"]
+        if wait:
+            self.now += 5
+        return {"action": "commit", "user": self.user, **args, "hold": hold}
+
+    def test_passkey_origin_uv_binding_signature_counter_and_restart(self):
+        for change in ({"origin": "https://example.invalid"}, {"no_uv": True}, {"cross": True},
+                       {"challenge": websafe_encode(bytes(32))}, {"rp_hash": bytes(32)}, {"bad_signature": True}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.call("login-finish", **self.ceremony("login", **change))
+        self.call("login-finish", **self.ceremony("login", counter=3))
+        with self.assertRaises(actions.Rejected):
+            self.call("login-finish", **self.ceremony("login", counter=2))
+        self.broker = self.start_broker()
+        with self.assertRaises(actions.Rejected):
+            self.call("session", session=self.session)
+        self.call("login-finish", **self.ceremony("login", counter=4))
+
+    def test_challenge_expiry_and_enrollment_window_does_not_extend(self):
+        expired = self.ceremony("login")
+        self.now += 121
+        with self.assertRaises(actions.Rejected):
+            self.call("login-finish", **expired)
+        fresh = self.directory / "fresh.db"
+        self.broker = actions.Broker(self.directory, fresh, self.origin, {self.user}, lambda: self.now)
+        self.addCleanup(self.broker.keys.close)
+        open_request = {"action": "open-enrollment", "user": self.user}
+        self.broker.handle(open_request, issuer=True)
+        self.now += 290
+        self.broker.handle(open_request, issuer=True)
+        near_expiry = self.ceremony("enroll")
+        self.now += 11
+        with self.assertRaisesRegex(actions.Rejected, "closed"):
+            self.call("enroll-finish", **near_expiry)
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle({"action": "open-enrollment", "user": "another"}, issuer=True)
+
+    def test_timing_cancel_replacement_and_expiry(self):
+        early = self.approve("delete", FIRST_ID, wait=False)
+        self.now += 4.999
+        with self.assertRaisesRegex(actions.Rejected, "early"):
+            self.broker.handle(early)
+        self.call("cancel", session=self.session, hold=early["hold"])
+        self.now += 1
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle(early)
+        first = self.approve("delete", FIRST_ID)
+        later = self.approve("delete", FIRST_ID)
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle(first)
+        self.now += 31
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle(later)
+        self.now += 900
+        with self.assertRaises(actions.Rejected):
+            self.call("arm", session=self.session, operation="delete", id=FIRST_ID)
 
     def test_scoped_once_only_approval_and_replacement(self):
-        with self.assertRaises(ValueError):
-            self.broker.handle({"action": "issue", "operation": "delete", "id": FIRST_ID})
         request = self.approve("delete", FIRST_ID)
         with self.assertRaises(ValueError):
-            self.broker.handle({**request, "action": "delete-all"})
+            self.broker.handle({**request, "operation": "delete-all"})
         with self.assertRaises(ValueError):
             self.broker.handle({**request, "id": "0" * 64})
+        with self.assertRaises(ValueError):
+            self.broker.handle({**request, "session": self.login()})
         original = self.file.stat()
         old_acl = os.getxattr(self.file, ACL)
         self.assertTrue(self.broker.handle(request)["ok"])
@@ -71,10 +199,6 @@ class ActionsTest(unittest.TestCase):
             self.broker.handle(request)
 
     def test_expiry_ambiguous_partial_and_stale_bulk(self):
-        with mock.patch.object(actions, "RECEIPT_TTL", -1):
-            expired = self.approve("delete", FIRST_ID)
-        with self.assertRaises(ValueError):
-            self.broker.handle(expired)
         snap = self.broker.handle({"action": "snapshot"})
         self.assertEqual(snap["count"], 2)
         bulk = self.approve("delete-all", snap["snapshot"])
