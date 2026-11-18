@@ -1,0 +1,18 @@
+# Private ts.net read-only pilot; no apex listener, DNS server or ACME.
+table inet portfolio_private_guard {
+    chain input {
+        type filter hook input priority -5; policy accept;
+        iifname != "tailscale0" meta l4proto { tcp, udp } th dport 8443 drop
+    }
+
+    chain output {
+        type filter hook output priority -5; policy accept;
+        ct direction reply ct state established,related accept
+        meta skuid { "portfolio-tunnel", "portfolio-deploy" } ip daddr 127.0.0.1 tcp dport 6050 accept
+        @DNS_RULES@
+        @KVM_RULE@
+        meta skuid { "portfolio-public", "portfolio-dashboard", "portfolio-tunnel", "portfolio-deploy" } jump pilot_egress
+    }
+
+    @PILOT_EGRESS@
+}

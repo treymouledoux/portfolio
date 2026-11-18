@@ -1,0 +1,16 @@
+[Unit]
+Description=Host network restrictions for the private portfolio dashboard
+DefaultDependencies=no
+After=local-fs.target nftables.service
+Before=portfolio-dashboard.socket shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/sbin/nft --check --file /etc/portfolio-dashboard/guard.nft
+ExecStart=/usr/sbin/nft --file /etc/portfolio-dashboard/guard.nft
+RemainAfterExit=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict

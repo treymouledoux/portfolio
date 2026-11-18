@@ -9,6 +9,7 @@ ExecStart=/usr/local/libexec/portfolio-dashboard
 User=portfolio-dashboard
 Group=portfolio-dashboard
 EnvironmentFile=/etc/portfolio-dashboard/status.env
+BindReadOnlyPaths=/etc/portfolio-public/public-resolv.conf:/etc/resolv.conf
 UMask=0077
 NoNewPrivileges=yes
 CapabilityBoundingSet=

@@ -1,45 +1,22 @@
-# Review in the Pi's existing nftables policy. All five service accounts must
-# already exist. Replace documentation values and populate named IP sets
-# before activation. Never flush the system/Tailscale ruleset.
-define jetkvm_v4 = 192.0.2.9
-define jetkvm_port = 65535
-
+# Render with render-host-guard.py pilot; never load the example directly.
 table inet portfolio_private_guard {
-	# Populate from the active providers' published endpoint ranges and the
-	# configured SMTP host. Empty sets deny those outbound connections.
-	set public_edge_v4 { type ipv4_addr; flags interval; }
-	set public_edge_v6 { type ipv6_addr; flags interval; }
-	set tunnel_edge_v4 { type ipv4_addr; flags interval; }
-	set tunnel_edge_v6 { type ipv6_addr; flags interval; }
-	set smtp_v4 { type ipv4_addr; flags interval; }
-	set smtp_v6 { type ipv6_addr; flags interval; }
-	set dns_v4 { type ipv4_addr; elements = { 127.0.0.53 }; }
+    chain input {
+        type filter hook input priority -5; policy accept;
+        iifname != "tailscale0" tcp dport { 443, 8443, 2222 } drop
+        iifname != "tailscale0" meta l4proto { tcp, udp } th dport 53 drop
+        iifname != "lo" tcp dport { 6050, 83 } drop
+        udp dport { 443, 8443 } drop
+    }
 
-	chain input {
-		type filter hook input priority -5; policy accept;
-		iifname != "tailscale0" tcp dport { 443, 8443, 2222 } drop
-		iifname != "lo" tcp dport 6050 drop
-		udp dport { 443, 8443 } drop
-	}
+    chain output {
+        type filter hook output priority -5; policy accept;
+        ct direction reply ct state established,related accept
+        meta skuid { "caddy", "portfolio-tunnel", "portfolio-deploy" } ip daddr 127.0.0.1 tcp dport 6050 accept
+        meta skuid "portfolio-tunnel" ip daddr 127.0.0.1 tcp dport 83 accept
+        @DNS_RULES@
+        @KVM_RULE@
+        meta skuid { "caddy", "portfolio-public", "portfolio-dashboard", "portfolio-dns", "portfolio-tunnel", "portfolio-deploy" } jump pilot_egress
+    }
 
-	chain output {
-		type filter hook output priority -5; policy accept;
-		# Responses on legitimate inbound sockets must still reach the client.
-		ct direction reply ct state established,related accept
-
-		meta skuid { "caddy", "portfolio-tunnel", "portfolio-deploy" } ip daddr 127.0.0.1 tcp dport 6050 accept
-		meta skuid { "portfolio-public", "portfolio-dashboard", "portfolio-tunnel" } ip daddr @dns_v4 meta l4proto { tcp, udp } th dport 53 accept
-
-		# This is the only new overlay connection an application may originate.
-		meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr $jetkvm_v4 tcp dport $jetkvm_port accept
-		meta skuid "portfolio-dashboard" ip daddr @public_edge_v4 tcp dport 443 accept
-		meta skuid "portfolio-dashboard" ip6 daddr @public_edge_v6 tcp dport 443 accept
-
-		# Narrow to the configured SMTP TLS port(s) and tunnel transport.
-		meta skuid "portfolio-public" ip daddr @smtp_v4 tcp dport { 465, 587 } accept
-		meta skuid "portfolio-public" ip6 daddr @smtp_v6 tcp dport { 465, 587 } accept
-		meta skuid "portfolio-tunnel" ip daddr @tunnel_edge_v4 meta l4proto { tcp, udp } th dport 7844 accept
-		meta skuid "portfolio-tunnel" ip6 daddr @tunnel_edge_v6 meta l4proto { tcp, udp } th dport 7844 accept
-		meta skuid { "caddy", "portfolio-public", "portfolio-dashboard", "portfolio-tunnel", "portfolio-deploy" } reject
-	}
+    @PILOT_EGRESS@
 }

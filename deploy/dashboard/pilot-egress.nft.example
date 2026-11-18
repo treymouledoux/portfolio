@@ -1,0 +1,8 @@
+chain pilot_egress {
+        oifname "tailscale0" reject
+        fib daddr type local reject
+        @LOCAL_DENIES@
+        ip6 daddr != 2000::/3 reject
+        @PROVIDER_RULES@
+        reject
+    }

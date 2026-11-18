@@ -1,5 +1,7 @@
 [Unit]
 Description=Private status HTTP socket for Tailscale Serve
+Requires=portfolio-dashboard-guard.service
+After=portfolio-dashboard-guard.service
 
 [Socket]
 ListenStream=/run/portfolio-dashboard/app.sock

@@ -5,17 +5,16 @@
     "group:pi-shell": ["SHELL_OPERATOR_LOGIN"],
   },
   "hosts": {
+    "operator-v4": "APPROVED_OPERATOR_TAILNET_IPV4",
+    "operator-v6": "APPROVED_OPERATOR_TAILNET_IPV6",
     "dashboard-kvm": "JETKVM_TAILNET_IPV4",
     "view-device-v4": "APPROVED_WORKSTATION_TAILNET_IPV4",
     "view-device-v6": "APPROVED_WORKSTATION_TAILNET_IPV6",
   },
-  "postures": {
-    "posture:ssh-console": {"assertions": ["node:os IN ['js']"]},
-  },
   "grants": [
     {"src": ["view-device-v4", "view-device-v6"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:443", "tcp:8443"]},
     {"src": ["tag:dashboard-pi"], "dst": ["dashboard-kvm"], "ip": ["tcp:JETKVM_PORT"]},
-    {"src": ["group:pi-shell"], "srcPosture": ["posture:ssh-console"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:22"]},
+    {"src": ["operator-v4", "operator-v6"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:22"]},
     {"src": ["tag:ci"], "dst": ["tag:dashboard-pi"], "ip": ["tcp:2222"]},
   ],
   // SSH rules have a smaller destination vocabulary than network grants.
@@ -26,7 +25,6 @@
     {
       "action": "check", "checkPeriod": "always",
       "src": ["group:pi-shell"], "dst": ["tag:dashboard-pi"],
-      "srcPosture": ["posture:ssh-console"],
       "users": ["RESTRICTED_LOCAL_SHELL_USER"],
     },
   ],
@@ -39,7 +37,7 @@
     {"src": "tag:dashboard-pi", "accept": ["dashboard-kvm:JETKVM_PORT"], "deny": ["dashboard-kvm:ANOTHER_DENIED_KVM_PORT"]},
   ],
   "sshTests": [
-    {"src": "SHELL_OPERATOR_LOGIN", "srcPostureAttrs": {"node:os": "js"}, "dst": ["tag:dashboard-pi"], "check": ["RESTRICTED_LOCAL_SHELL_USER"], "deny": ["root", "portfolio-deploy"]},
+    {"src": "SHELL_OPERATOR_LOGIN", "dst": ["tag:dashboard-pi"], "check": ["RESTRICTED_LOCAL_SHELL_USER"], "deny": ["root", "portfolio-deploy"]},
     {"src": "tag:ci", "dst": ["tag:dashboard-pi"], "deny": ["RESTRICTED_LOCAL_SHELL_USER", "portfolio-deploy", "root"]},
   ],
 }

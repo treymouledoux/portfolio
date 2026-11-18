@@ -36,6 +36,7 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: python3 ../scripts/check-dashboard-styles.py
+      - run: python3 -B ../deploy/dashboard/test_host_guard.py
       - run: cargo build --locked --release
       - name: Package reviewed executable
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

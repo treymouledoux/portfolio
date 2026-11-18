@@ -1,0 +1,18 @@
+# Render with render-host-guard.py first-run. This stage covers the three
+# existing public UIDs. Private listeners remain disabled until the pilot stage.
+table inet portfolio_private_guard {
+    chain output {
+        type filter hook output priority -5; policy accept;
+        ct direction reply ct state established,related accept
+        meta skuid { "portfolio-deploy", "portfolio-tunnel" } ip daddr 127.0.0.1 tcp dport 6050 accept
+        @DNS_RULES@
+        meta skuid { "portfolio-public", "portfolio-tunnel", "portfolio-deploy" } jump public_local_guard
+        meta skuid "portfolio-deploy" reject
+    }
+
+    chain public_local_guard {
+        oifname "tailscale0" reject
+        fib daddr type local reject
+        @LOCAL_DENIES@
+    }
+}
