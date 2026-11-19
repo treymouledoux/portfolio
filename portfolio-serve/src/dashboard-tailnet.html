@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>403 · Dashboard is tailnet only</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #f5f3f5;
+      background: #0b0c10;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100svh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background-image:
+        radial-gradient(ellipse at 50% 31%, #3ea89723, transparent 49%),
+        linear-gradient(#ffffff05 1px, transparent 1px),
+        linear-gradient(90deg, #ffffff05 1px, transparent 1px);
+      background-size: auto, 48px 48px, 48px 48px;
+    }
+    header, footer {
+      padding: 1.25rem max(6vw, calc((100vw - 70rem) / 2));
+      font-size: .875rem;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .75rem;
+      flex-wrap: wrap;
+      border-bottom: 1px solid #ffffff13;
+    }
+    header strong { display: flex; align-items: center; gap: .6rem; }
+    header strong::before {
+      content: "";
+      width: .5rem;
+      height: .5rem;
+      border-radius: 50%;
+      background: #8ee6d5;
+      box-shadow: 0 0 .7rem #8ee6d566;
+    }
+    header span {
+      border: 1px solid #2f6b62;
+      border-radius: 2rem;
+      padding: .35rem .75rem;
+      color: #b3f2e6;
+      background: #12211f;
+      font: .78rem ui-monospace, monospace;
+    }
+    main {
+      align-self: center;
+      justify-self: center;
+      width: min(100%, 42rem);
+      padding: clamp(3rem, 8vh, 7rem) 1.25rem;
+      text-align: center;
+    }
+    .shield {
+      width: 4.25rem;
+      height: 5rem;
+      margin: 0 auto 2rem;
+      display: grid;
+      place-items: center;
+      position: relative;
+      filter: drop-shadow(0 .2rem 1.1rem #3ea8974d);
+    }
+    .shield::before, .shield::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(145deg, #b6f4e7, #3ea897);
+      clip-path: polygon(50% 0, 96% 16%, 96% 49%, 89% 69%, 76% 84%, 50% 100%, 24% 84%, 11% 69%, 4% 49%, 4% 16%);
+    }
+    .shield::after { inset: .27rem; background: linear-gradient(135deg, #2b7a6c, #123a34); }
+    .lock {
+      position: relative;
+      z-index: 1;
+      margin-top: .45rem;
+      width: 1.12rem;
+      height: .9rem;
+      border-radius: .16rem;
+      background: #eafaf6;
+    }
+    .lock::before {
+      content: "";
+      position: absolute;
+      width: .52rem;
+      height: .55rem;
+      bottom: .65rem;
+      left: .15rem;
+      border: .16rem solid #eafaf6;
+      border-radius: 50% 50% 0 0;
+    }
+    h1 { margin: 0; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.08; letter-spacing: -.045em; }
+    p { max-width: 31rem; margin: 1rem auto 0; color: #bfc0ce; font-size: 1.05rem; line-height: 1.65; }
+    ol {
+      display: inline-block;
+      margin: 1.6rem auto 0;
+      padding: 0;
+      list-style: none;
+      text-align: left;
+      color: #d5d6e0;
+      font-size: .98rem;
+      line-height: 1.9;
+      counter-reset: step;
+    }
+    ol li { counter-increment: step; }
+    ol li::before {
+      content: counter(step);
+      display: inline-grid;
+      place-items: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      margin-right: .7rem;
+      border: 1px solid #2f6b62;
+      border-radius: 50%;
+      background: #12211f;
+      color: #8ee6d5;
+      font: .78rem ui-monospace, monospace;
+    }
+    .note { margin-top: 1.6rem; color: #8f93a3; font-size: .87rem; }
+    nav { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; margin-top: 2rem; }
+    nav a {
+      display: inline-block;
+      padding: .8rem 1.3rem;
+      border: 1px solid #474854;
+      border-radius: .55rem;
+      background: #1b1c24;
+      color: #f7f4f6;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    nav a:first-child { color: #08221d; background: #8ee6d5; border-color: #a5efe2; }
+    nav a:hover { text-decoration: underline; text-underline-offset: .2em; }
+    a:focus-visible { outline: 3px solid white; outline-offset: 4px; }
+    footer { border-top: 1px solid #ffffff13; color: #a9aaba; }
+  </style>
+</head>
+<body>
+  <header><strong>Trey Mouledoux</strong><span>Tailnet only</span></header>
+  <main>
+    <div class="shield" aria-hidden="true"><span class="lock"></span></div>
+    <h1>This dashboard answers only over the tailnet</h1>
+    <p>dashboard.treymouledoux.me is a private address. It resolves inside my tailnet and only for a device that is signed in with an approved account, so the public internet never reaches the dashboard itself. This notice is the whole public response.</p>
+    <ol>
+      <li>Open Tailscale on this device.</li>
+      <li>Confirm it is connected with the approved account.</li>
+      <li>Reload this page.</li>
+    </ol>
+    <p class="note">No status, messages or dashboard files are served publicly.</p>
+    <nav aria-label="Access options">
+      <a href="https://dashboard.treymouledoux.me/">Try again</a>
+      <a href="https://treymouledoux.me/">Back to portfolio</a>
+    </nav>
+  </main>
+  <footer>treymouledoux.me</footer>
+</body>
+</html>

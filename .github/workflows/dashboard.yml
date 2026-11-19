@@ -6,6 +6,7 @@ on:
       - 'portfolio-dashboard/**'
       - 'deploy/dashboard/**'
       - 'portfolio-serve/src/dashboard-denied.html'
+      - 'portfolio-serve/src/dashboard-tailnet.html'
       - 'scripts/check-dashboard-styles.py'
       - '.github/workflows/dashboard.yml'
   push:
@@ -14,6 +15,7 @@ on:
       - 'portfolio-dashboard/**'
       - 'deploy/dashboard/**'
       - 'portfolio-serve/src/dashboard-denied.html'
+      - 'portfolio-serve/src/dashboard-tailnet.html'
       - 'scripts/check-dashboard-styles.py'
       - '.github/workflows/dashboard.yml'
   workflow_dispatch:

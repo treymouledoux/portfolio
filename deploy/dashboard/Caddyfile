@@ -33,47 +33,14 @@ https://treymouledoux.me {
 	bind 192.0.2.1 2001:db8::1
 	tls /etc/caddy/tls/apex-fullchain.pem /etc/caddy/tls/apex-key.pem
 
-	# The single public entry point. It is safe for any client: it only probes
-	# the private origin and hands over when the tailnet actually answers.
-	@landing {
-		method GET HEAD
-		path /dashboard /dashboard/ /dashboard/messages /dashboard/messages/
-	}
-	@private path /dashboard /dashboard/*
+	# The dashboard lives on its own private hostname. Nothing of it is rendered
+	# or redirected from the apex, which serves only the public site.
 	@public_read method GET HEAD
 	@contact {
 		method POST
 		path /api/contact
 	}
 	route {
-		handle @landing {
-			header {
-				Content-Security-Policy "default-src 'none'; style-src 'sha256-M3X6bTRQsYoQIZH3Hgb3alA2muaO2eurGaRfbnnR53o='; script-src 'sha256-vEE2KtR1hGoei/wLuulL0o77kQzmCNwtJGuFNEyKbUo='; connect-src https://status.example.invalid; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-				Cache-Control "private, no-store"
-				Referrer-Policy no-referrer
-				X-Content-Type-Options nosniff
-				X-Frame-Options DENY
-				X-Robots-Tag noindex
-			}
-			root * /usr/local/share/portfolio-dashboard
-			# The inbox and overview are the private origin's own pages; nothing
-			# of them is rendered here, only the handoff document.
-			rewrite * /handoff.html
-			file_server
-		}
-		handle @private {
-			# Request only the public denial document, without any client
-			# parameters, credentials, method or body.
-			reverse_proxy 127.0.0.1:6050 {
-				method GET
-				rewrite /dashboard?
-				header_up -*
-				header_up Host treymouledoux.me
-				header_down -Set-Cookie
-				header_down Cache-Control "private, no-store"
-				replace_status 403
-			}
-		}
 		# Snapshot the public fields, clear the original headers, and restore
 		# only fields the client actually sent before calling the public app.
 		vars {

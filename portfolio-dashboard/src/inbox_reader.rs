@@ -88,37 +88,6 @@ pub(super) fn counts(file: File, dir: &Path) -> io::Result<(u64, u64)> {
     Ok((total, unread))
 }
 
-pub(crate) async fn badge(headers: HeaderMap) -> Response {
-    let Ok(dir) = owner_dir(&headers) else {
-        return StatusCode::FORBIDDEN.into_response();
-    };
-    let Ok(slot) = SCAN_SLOTS.try_acquire() else {
-        return unavailable();
-    };
-    match tokio::task::spawn_blocking(move || {
-        let _slot = slot;
-        counts(open_archive()?, &dir)
-    })
-    .await
-    {
-        Ok(Ok((total, unread))) => Html(
-            include_str!("inbox-badge.html")
-                .replace(
-                    "{{COUNT}}",
-                    &if unread > 99 {
-                        "99+".into()
-                    } else {
-                        unread.to_string()
-                    },
-                )
-                .replace("{{TONE}}", if unread == 0 { "empty" } else { "" })
-                .replace("{{DETAIL}}", &format!("{unread} unread / {total} total")),
-        )
-        .into_response(),
-        _ => unavailable(),
-    }
-}
-
 pub(super) fn filtered_page(
     mut file: File,
     before: Option<u64>,

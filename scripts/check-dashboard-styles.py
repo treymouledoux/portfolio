@@ -9,9 +9,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = {
     "portfolio-serve/src/dashboard-denied.html": "portfolio-serve/src/main.rs",
-    "deploy/dashboard/handoff.html": "deploy/dashboard/Caddyfile",
-    "portfolio-dashboard/src/inbox-badge.html": "portfolio-dashboard/src/inbox.rs",
-    "portfolio-dashboard/src/embed.html": "portfolio-dashboard/src/main.rs",
+    "portfolio-serve/src/dashboard-tailnet.html": "portfolio-serve/src/main.rs",
     "portfolio-dashboard/src/denied.html": "portfolio-dashboard/src/main.rs",
 }
 
@@ -26,6 +24,4 @@ def check_inline(page, policy, tag, directive):
 
 for page, policy in PAGES.items():
     check_inline(page, policy, "style", "style-src")
-    if page == "deploy/dashboard/handoff.html":
-        check_inline(page, policy, "script", "script-src")
     print(f"Verified {page}")

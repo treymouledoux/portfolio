@@ -138,7 +138,6 @@ async fn every_private_route_and_error_requires_one_trusted_viewer() {
         "/dashboard.css",
         "/api/status",
         "/api/history",
-        "/embed/status",
         "/messages",
         "/missing",
     ] {
@@ -261,57 +260,6 @@ async fn omitting_the_optional_pi_label_preserves_status() {
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
         serde_json::json!({"website": "healthy", "jetkvm": "unavailable"})
-    );
-}
-
-#[tokio::test]
-async fn frames_are_limited_to_the_two_statuses_and_exact_parent() {
-    let headers = [
-        ("tailscale-user-login", OWNER),
-        ("sec-fetch-site", "cross-site"),
-        ("sec-fetch-mode", "navigate"),
-        ("sec-fetch-dest", "iframe"),
-    ];
-    let response = call("GET", "/embed/status", &headers).await;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response.headers()[header::CONTENT_SECURITY_POLICY],
-        EMBED_CSP
-    );
-    assert!(EMBED_CSP.contains("frame-ancestors https://treymouledoux.me; sandbox;"));
-    assert!(!response.headers().contains_key(header::X_FRAME_OPTIONS));
-    let body = String::from_utf8(
-        to_bytes(response.into_body(), 65_536)
-            .await
-            .unwrap()
-            .to_vec(),
-    )
-    .unwrap();
-    assert!(body.contains("Healthy") && body.contains("Unavailable"));
-    assert!(
-        !body.contains("{{")
-            && !body.contains("<script")
-            && !body.contains(PI_FIXTURE)
-            && !body.contains(SSH_USER)
-    );
-    for path in ["/api/status", "/dashboard.js"] {
-        assert_eq!(
-            call("GET", path, &headers).await.status(),
-            StatusCode::FORBIDDEN
-        );
-    }
-    let fetch = [
-        ("tailscale-user-login", OWNER),
-        ("sec-fetch-site", "cross-site"),
-        ("sec-fetch-mode", "cors"),
-    ];
-    assert_eq!(
-        call("GET", "/embed/status", &fetch).await.status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        call("POST", "/embed/status", &headers).await.headers()[header::X_FRAME_OPTIONS],
-        "DENY"
     );
 }
 
@@ -701,22 +649,6 @@ async fn gateway_identity_reaches_handlers_only_after_the_peer_lookup() {
 }
 
 #[tokio::test]
-async fn handoff_probe_is_readable_by_the_public_apex_without_identity() {
-    let request = Request::builder()
-        .uri("/handoff")
-        .header("sec-fetch-site", "same-site")
-        .body(Body::empty())
-        .unwrap();
-    let response = fixture(None).oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    assert_eq!(
-        response.headers()["cross-origin-resource-policy"],
-        "same-site"
-    );
-    assert_eq!(response.headers()["cache-control"], "private, no-store");
-}
-
-#[tokio::test]
 async fn gateway_trust_derives_identity_from_the_peer_socket_only() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let path = std::path::PathBuf::from("/tmp")
@@ -877,7 +809,6 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
         pi_ssh_user: None,
     };
     let r = Router::new()
-        .route("/embed/inbox-count", get(|| async { "count" }))
         .route("/messages/export/download", get(|| async { "export" }))
         .route(
             "/messages/read/{id}",
@@ -888,24 +819,6 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
             protect,
         ));
     for (user, path, method, site, dest, origin, allowed) in [
-        (
-            OWNER,
-            "/embed/inbox-count",
-            "GET",
-            "cross-site",
-            "iframe",
-            "",
-            "yes",
-        ),
-        (
-            "viewer@example.test",
-            "/embed/inbox-count",
-            "GET",
-            "cross-site",
-            "iframe",
-            "",
-            "no",
-        ),
         (
             "viewer@example.test",
             "/messages/export/download",

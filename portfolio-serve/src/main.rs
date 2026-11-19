@@ -4,8 +4,9 @@ mod submissions;
 
 use axum::{
     Json, Router,
+    body::Body,
     extract::{ConnectInfo, DefaultBodyLimit, State, rejection::JsonRejection},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{any, get, post},
@@ -28,6 +29,10 @@ use tower_http::{
 };
 
 const BODY_LIMIT: usize = 64 * 1024;
+// Split DNS sends this name to the Pi for tailnet devices. Public clients reach
+// this server instead, and get only the notice below.
+const DASHBOARD_HOST: &str = "dashboard.treymouledoux.me";
+const TAILNET_CSP: &str = "default-src 'none'; style-src 'sha256-EmQCREcGYhiGgw6TykAGI7Xq/J+VSrf365Csh+reFRI='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const COOLDOWN: Duration = Duration::from_secs(3600);
 const ATTEMPT_WINDOW: Duration = Duration::from_secs(60);
 const MAX_CLIENTS: usize = 4096;
@@ -287,6 +292,53 @@ async fn response_headers(request: axum::extract::Request, next: Next) -> Respon
     }
     response
 }
+fn dashboard_host(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::HOST)
+        .or_else(|| headers.get("x-forwarded-host"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .is_some_and(|host| {
+            let host = host.trim().trim_end_matches('.');
+            host.split(':')
+                .next()
+                .is_some_and(|name| name.eq_ignore_ascii_case(DASHBOARD_HOST))
+        })
+}
+
+/// The dashboard hostname is private by DNS. A request that arrives here with
+/// that name came from the public edge, so it never sees a route, an asset or
+/// an error page of the dashboard: only this notice, on every path.
+async fn tailnet_only(request: axum::extract::Request, next: Next) -> Response {
+    if !dashboard_host(request.headers()) {
+        return next.run(request).await;
+    }
+    let head = request.method() == Method::HEAD;
+    let mut response = (
+        StatusCode::FORBIDDEN,
+        Html(include_str!("dashboard-tailnet.html")),
+    )
+        .into_response();
+    if head {
+        *response.body_mut() = Body::empty();
+    }
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(TAILNET_CSP),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::HeaderName::from_static("x-robots-tag"),
+        HeaderValue::from_static("noindex"),
+    );
+    response
+}
+
 async fn dashboard_denied() -> impl IntoResponse {
     // The hash allows only the literal stylesheet in dashboard-denied.html.
     let headers = [
@@ -339,6 +391,7 @@ fn app(assets: &Path, state: AppState) -> Router {
                 .precompressed_gzip(),
         )
         .layer(CompressionLayer::new())
+        .layer(middleware::from_fn(tailnet_only))
         .layer(middleware::from_fn(response_headers))
         .with_state(state)
 }

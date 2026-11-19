@@ -114,7 +114,6 @@ def check_caddy(work, binary):
         cfg = cfg.replace("/etc/caddy/dashboard-tls/dashboard-key.pem", str(key))
         dashboard_socket = work / "dashboard.sock"
         cfg = cfg.replace("unix//run/portfolio-dashboard-peer/dashboard.sock", f"unix//{dashboard_socket}")
-        cfg = cfg.replace("/usr/local/share/portfolio-dashboard", f'"{work / "static"}"')
         if "127.0.0.1:6050" in cfg or "bind 127.0.0.1 ::1" not in cfg:
             raise ValueError("Fixture did not replace the production listener and upstream")
         dashboard = UnixServer(str(dashboard_socket), Origin)
@@ -122,8 +121,6 @@ def check_caddy(work, binary):
         threading.Thread(target=dashboard.serve_forever, daemon=True).start()
         cleanup.callback(dashboard.server_close)
         cleanup.callback(dashboard.shutdown)
-        (work / "static").mkdir()
-        (work / "static/handoff.html").write_bytes((HERE / "handoff.html").read_bytes())
         config = work / "Caddyfile"
         config.write_text(cfg)
         adapted = json.loads(subprocess.check_output([binary, "adapt", "--config", config, "--adapter", "caddyfile"]))
@@ -156,24 +153,17 @@ def check_caddy(work, binary):
                 finally:
                     conn.close()
 
-        # One public entry point for every client: the handoff page decides.
-        handoff = (HERE / "handoff.html").read_bytes()
-        for path in ("/dashboard?example=1", "/dashboard/", "/dashboard/messages", "/dashboard/messages/"):
+        # The apex hosts only the public site. /dashboard is no longer special:
+        # the public app answers it with its own denial document, and no part of
+        # the private dashboard is rendered, framed or redirected from here.
+        for path in ("/dashboard", "/dashboard/", "/dashboard/messages", "/dashboard/api?example=1"):
             status, headers, body = request(path)
-            assert status == 200 and body == handoff
-            assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
-        assert request("/dashboard", method="HEAD")[2] == b""
-        assert not public.seen
-        # Everything else under /dashboard still falls through to the public
-        # denial document, whatever the client address.
-        for path, peer, method in [("/dashboard/api?example=1", "::1", "GET"),
-                                   ("/dashboard/other", "127.0.0.1", "GET"),
-                                   ("/dashboard/api?example=1", "127.0.0.1", "POST")]:
-            status, headers, _ = request(path, peer, method, b"test" if method == "POST" else None)
-            seen_method, seen_path, seen_headers, seen_body = public.seen.pop()
-            assert status == 403 and headers["Cache-Control"] == "private, no-store"
-            assert seen_method == "GET" and seen_path.rstrip("?") == "/dashboard" and not seen_body
+            seen_method, seen_path, seen_headers, _ = public.seen.pop()
+            assert status == 200 and body == b"fixture public response"
+            assert seen_method == "GET" and seen_path == path
+            assert not headers["Location"] and not headers["Set-Cookie"]
             assert not seen_headers["Cookie"] and not seen_headers["Authorization"]
+        assert not dashboard.seen
         for path in ("/", "/resume", "/_next/static/fixture.js"):
             assert request(path)[0] == 200
             _, seen_path, forwarded, _ = public.seen.pop()
@@ -211,7 +201,7 @@ def check_caddy(work, binary):
         assert not public.seen
         assert request("/dashboard", hostname="unexpected.test")[0] == 421
         assert request("/other", method="POST", body=b"{}")[0] == 405 and not public.seen
-    print("Caddy: verified TLS host, direct peer selection, original URL, sanitized 403 and public routes.")
+    print("Caddy: verified TLS host, public-only apex, direct peer selection and original URLs.")
 
 
 def check_dns(work, binary):

@@ -157,6 +157,79 @@ async fn public_dashboard_is_always_forbidden() {
     }
 }
 #[tokio::test]
+async fn the_dashboard_hostname_only_returns_the_tailnet_notice() {
+    let (_temp, _, router) = fixture().await;
+    for (method, path) in [
+        ("GET", "/"),
+        ("HEAD", "/"),
+        ("GET", "/_next/static/chunks/app-123.js"),
+        ("GET", "/dashboard"),
+        ("POST", "/api/contact"),
+        ("GET", "/anything/else?x=1"),
+    ] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::HOST, "dashboard.treymouledoux.me")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{method} {path}");
+        let headers = response.headers();
+        assert_eq!(
+            headers[header::CACHE_CONTROL],
+            "no-store",
+            "{method} {path}"
+        );
+        assert_eq!(headers[header::CONTENT_TYPE], "text/html; charset=utf-8");
+        assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
+        assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
+        assert!(
+            headers[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap()
+                .contains("default-src 'none'")
+        );
+        let body = to_bytes(response.into_body(), BODY_LIMIT).await.unwrap();
+        if method == "HEAD" {
+            assert!(body.is_empty());
+        } else {
+            assert_eq!(body.as_ref(), include_bytes!("dashboard-tailnet.html"));
+        }
+    }
+    // A port, a trailing dot or different case still names the same host.
+    for host in [
+        "dashboard.treymouledoux.me:443",
+        "dashboard.treymouledoux.me.",
+        "DASHBOARD.Treymouledoux.ME",
+    ] {
+        let req = Request::builder()
+            .uri("/")
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{host}");
+    }
+    // The public apex keeps the real site, including its own 403 subtree.
+    for path in ["/", "/dashboard"] {
+        let req = Request::builder()
+            .uri(path)
+            .header(header::HOST, "treymouledoux.me")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(response.into_body(), BODY_LIMIT).await.unwrap();
+        assert_ne!(
+            body.as_ref(),
+            include_bytes!("dashboard-tailnet.html"),
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn serves_precompressed_assets_and_identity() {
     let (_temp, _, router) = fixture().await;
     for (encoding, expected) in [

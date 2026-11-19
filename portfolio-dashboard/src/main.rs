@@ -29,14 +29,11 @@ const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const PEER_SOCKET: &str = "/run/portfolio-dashboard-peer/dashboard.sock";
 const WHOIS_SOCKET: &str = "/run/portfolio-whois/whois.sock";
-// The public apex, whose handoff page may probe this origin.
-const APEX_ORIGIN: &str = "https://treymouledoux.me";
 const VIEW_OVERVIEW: &str = "overview";
 const VIEW_MESSAGES: &str = "messages";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-SM1MGwmvKiVaLC9I2tANbbB3OgX6X5fjRiK63pRVMFQ='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
 /// One document carries both views so switching them never reloads the page.
 /// The server fills the requested view, so a deep link, a reload or a browser
@@ -266,9 +263,6 @@ async fn protect(
     let inbox = path == "/messages";
     // Exactly the body the single-page shell swaps into its Messages view.
     let fragment = path == "/messages/view";
-    // The public handoff page asks this origin whether it is reachable.
-    let probe = path == "/handoff";
-    let badge = path == "/embed/inbox-count";
     let inbox_path = inbox || path.starts_with("/messages/");
     let auth_api = path.starts_with("/messages/auth/");
     let destructive = path == "/messages/delete-all"
@@ -286,25 +280,20 @@ async fn protect(
             _ => None,
         },
     };
-    let allowed = probe
-        || login.as_deref().is_some_and(|login| {
-            app.viewers.contains(login)
-                && (!(inbox_path || badge) || app.inbox_readers.contains(login))
-                && (!inbox_path || app.admin_origin.is_some())
-                && (!destructive || app.inbox_admins.contains(login))
-        });
+    let allowed = login.as_deref().is_some_and(|login| {
+        app.viewers.contains(login)
+            && (!inbox_path || app.inbox_readers.contains(login))
+            && (!inbox_path || app.admin_origin.is_some())
+            && (!destructive || app.inbox_admins.contains(login))
+    });
     let site = single_header(req.headers(), "sec-fetch-site");
     let dest = single_header(req.headers(), "sec-fetch-dest");
-    let embedding = badge || path == "/embed/status";
     let navigation = (req.method() == Method::GET || req.method() == Method::HEAD)
         && single_header(req.headers(), "sec-fetch-mode") == Some("navigate")
-        && (path == "/"
-            || (embedding && dest == Some("iframe"))
-            || (inbox && dest == Some("document")));
+        && (path == "/" || (inbox && dest == Some("document")));
     let foreign_request = req.headers().contains_key("sec-fetch-site")
         && !matches!(site, Some("same-origin" | "none"))
-        && !navigation
-        && !probe;
+        && !navigation;
     let wrong_destination = inbox_path
         && dest.is_some_and(|d| {
             if inbox || path == "/messages/passkey" {
@@ -320,17 +309,10 @@ async fn protect(
         && (site != Some("same-origin")
             || single_header(req.headers(), "origin") != app.admin_origin.as_deref());
     let denied = !allowed || foreign_request || wrong_origin || wrong_destination;
-    // Only the explicitly embeddable count and the login/enrollment ceremony are
-    // available before unlock. Never open the archive to render a locked page.
+    // The login and enrollment ceremony stay available before unlock. Never
+    // open the archive to render a locked page.
     let needs_session = inbox_path && !auth_api && path != "/messages/passkey";
-    let hidden_badge = badge
-        && login
-            .as_deref()
-            .is_some_and(|user| app.viewers.contains(user) && !app.inbox_readers.contains(user))
-        && !foreign_request;
-    let mut response = if hidden_badge {
-        (StatusCode::FORBIDDEN, Html("")).into_response()
-    } else if denied {
+    let mut response = if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
     } else if needs_session && !inbox_actions::unlocked(req.headers()).await {
         // A locked inbox is a server-rendered state inside the page, not a
@@ -355,35 +337,26 @@ async fn protect(
         }
         next.run(req).await
     };
-    let embed_document = (embedding && response.status().is_success()) || hidden_badge;
     let headers = response.headers_mut();
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store"),
     );
-    if embed_document {
-        headers.insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(if badge { inbox::BADGE_CSP } else { EMBED_CSP }),
-        );
-    } else {
-        headers.insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(if denied {
-                DENIAL_CSP
-            } else if inbox_path {
-                ACTION_CSP
-            } else {
-                CSP
-            }),
-        );
-        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-        headers.insert(
-            "cross-origin-resource-policy",
-            // Only the body-less probe may be read by the public apex.
-            HeaderValue::from_static(if probe { "same-site" } else { "same-origin" }),
-        );
-    }
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(if denied {
+            DENIAL_CSP
+        } else if inbox_path {
+            ACTION_CSP
+        } else {
+            CSP
+        }),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        "cross-origin-resource-policy",
+        HeaderValue::from_static("same-origin"),
+    );
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static(if inbox_path && !denied {
@@ -404,143 +377,6 @@ async fn protect(
     response
 }
 
-/// Chrome asks a public page before it may reach a private address.
-fn preflight_headers() -> (StatusCode, HeaderMap) {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        HeaderValue::from_static(APEX_ORIGIN),
-    );
-    headers.insert(
-        "access-control-allow-methods",
-        HeaderValue::from_static("GET"),
-    );
-    headers.insert(
-        "access-control-allow-private-network",
-        HeaderValue::from_static("true"),
-    );
-    (StatusCode::NO_CONTENT, headers)
-}
-
-/// Reachability probe for the public handoff page: no body, no identity, no
-/// state, and readable across the apex because both share a registrable site.
-async fn handoff() -> (StatusCode, HeaderMap) {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "cross-origin-resource-policy",
-        HeaderValue::from_static("same-site"),
-    );
-    (StatusCode::NO_CONTENT, headers)
-}
-
-async fn embed(
-    State(app): State<App>,
-    headers: HeaderMap,
-    axum::extract::RawQuery(query): axum::extract::RawQuery,
-) -> Response {
-    let notice = match query.as_deref() {
-        None => "",
-        Some(q) => {
-            let Some(target) = q.strip_prefix("test=").and_then(metrics::Target::parse) else {
-                return StatusCode::BAD_REQUEST.into_response();
-            };
-            if single_header(&headers, "sec-fetch-mode") != Some("navigate")
-                || single_header(&headers, "sec-fetch-user") != Some("?1")
-            {
-                return StatusCode::FORBIDDEN.into_response();
-            }
-            let Some(probes) = &app.probes else {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            };
-            probes.run(target).await
-        }
-    };
-    let status = app.status.borrow().fresh();
-    let (website, web_tone) = match status.website {
-        Website::Unknown => ("Unknown", "unknown"),
-        Website::Healthy => ("Healthy", "good"),
-        Website::Unavailable => ("Unavailable", "bad"),
-    };
-    let (jetkvm, kvm_tone) = match status.jetkvm {
-        JetKvm::Unknown => ("Unknown", "unknown"),
-        JetKvm::Reachable => ("Reachable", "good"),
-        JetKvm::Unavailable => ("Unavailable", "bad"),
-    };
-    let latency = |reading: Option<metrics::Reading>| match reading {
-        Some(r) => match r.latency_ms {
-            Some(0) => "&lt;1 ms".to_owned(),
-            Some(ms) => format!("{ms} ms"),
-            None => "No response".to_owned(),
-        },
-        None => "Awaiting check".to_owned(),
-    };
-    let host = status.host.unwrap_or_default();
-    let muse = status.muse.and_then(|m| m.online);
-    let uptime = host.uptime_seconds.map_or_else(
-        || "—".into(),
-        |seconds| {
-            format!(
-                "{}d {}h {}m",
-                seconds / 86400,
-                seconds / 3600 % 24,
-                seconds / 60 % 60
-            )
-        },
-    );
-    let checked = status.website_probe.map_or_else(
-        || "Awaiting first check".into(),
-        |v| {
-            format!(
-                "Website checked {}s ago",
-                metrics::epoch().saturating_sub(v.checked_at)
-            )
-        },
-    );
-    Html(
-        include_str!("embed.html")
-            .replace("{{WEBSITE_STATUS}}", website)
-            .replace("{{WEBSITE_TONE}}", web_tone)
-            .replace("{{JETKVM_STATUS}}", jetkvm)
-            .replace("{{JETKVM_TONE}}", kvm_tone)
-            .replace(
-                "{{MUSE_STATUS}}",
-                match muse {
-                    Some(true) => "Connected",
-                    Some(false) => "Offline",
-                    None => "Unknown",
-                },
-            )
-            .replace(
-                "{{MUSE_TONE}}",
-                match muse {
-                    Some(true) => "good",
-                    Some(false) => "bad",
-                    None => "unknown",
-                },
-            )
-            .replace("{{WEB_MS}}", &latency(status.website_probe))
-            .replace("{{TCP_MS}}", &latency(status.jetkvm_probe))
-            .replace("{{PING_MS}}", &latency(status.ping_probe))
-            .replace(
-                "{{CPU}}",
-                &host
-                    .cpu_percent
-                    .map_or_else(|| "—".into(), |n| format!("{n:.1}%")),
-            )
-            .replace(
-                "{{RAM}}",
-                &host
-                    .memory_used_mib
-                    .zip(host.memory_total_mib)
-                    .map_or_else(|| "—".into(), |(a, b)| format!("{a} / {b} MiB")),
-            )
-            .replace("{{UPTIME}}", &uptime)
-            .replace("{{CHECKED}}", &checked)
-            .replace("{{NOTICE}}", notice),
-    )
-    .into_response()
-}
-
 #[cfg(test)]
 fn app(state: App) -> Router {
     app_with(state, Trust::Serve)
@@ -549,15 +385,9 @@ fn app(state: App) -> Router {
 fn app_with(state: App, trust: Trust) -> Router {
     Router::new()
         .route("/", get(overview))
-        .route(
-            "/handoff",
-            get(handoff).options(|| async { preflight_headers() }),
-        )
-        .route("/embed/status", get(embed))
         .route("/api/check/{target}", axum::routing::post(test_service))
         .route("/messages", get(inbox::messages))
         .route("/messages/view", get(inbox::view))
-        .route("/embed/inbox-count", get(inbox::badge))
         .route("/messages/export/download", get(inbox::export))
         .route("/messages/read/{id}", axum::routing::post(inbox::mark))
         .route("/messages/unread/{id}", axum::routing::post(inbox::mark))

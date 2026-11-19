@@ -1,7 +1,6 @@
 #[path = "inbox_reader.rs"]
 mod reader;
-pub(super) use reader::{badge, export, mark};
-pub(super) const BADGE_CSP: &str = "default-src 'none'; style-src 'sha256-zhIDt/Sy1teYyEPTgKh9PFPMEKmd0gN16w5acUKlZeA='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+pub(super) use reader::{export, mark};
 
 use super::*;
 use axum::extract::RawQuery;
