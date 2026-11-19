@@ -1,0 +1,33 @@
+[Unit]
+Description=Private Tailscale identity resolver
+Requires=portfolio-whois.socket
+After=portfolio-whois.socket tailscaled.service
+
+[Service]
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -I -B /usr/local/libexec/portfolio-whois serve
+ReadOnlyPaths=/run/tailscale
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+LimitCORE=0
+InaccessiblePaths=-/etc/credstore -/etc/letsencrypt -/etc/portfolio-dashboard -/etc/caddy -/run/portfolio-dashboard -/run/portfolio-inbox-actions -/var/lib/portfolio-inbox-store -/var/lib/portfolio-inbox-auth
+Restart=on-failure
+RestartSec=5

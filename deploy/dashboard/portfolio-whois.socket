@@ -1,0 +1,13 @@
+[Unit]
+Description=Private Tailscale identity lookup socket
+
+[Socket]
+ListenStream=/run/portfolio-whois/whois.sock
+DirectoryMode=0750
+SocketUser=root
+SocketGroup=portfolio-dashboard
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
