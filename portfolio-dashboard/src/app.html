@@ -74,6 +74,32 @@
           <p class="footnote" id="receipt" role="status" aria-live="polite"></p>
           <noscript><p class="footnote">Enable JavaScript to load service status.</p></noscript>
         </section>
+        <section class="history-section" aria-labelledby="history">
+          <div class="history-head">
+            <h2 id="history">History</h2>
+            <div class="chart-tabs" role="group" aria-label="Choose a graph">
+              <button type="button" data-series="ping" aria-pressed="true" hidden>Ping</button>
+              <button type="button" data-series="cpu" aria-pressed="false" hidden>CPU</button>
+              <button type="button" data-series="ram" aria-pressed="false" hidden>RAM</button>
+            </div>
+          </div>
+          <figure class="chart">
+            <svg id="chart" viewBox="0 0 640 200" preserveAspectRatio="none" role="img" aria-labelledby="chart-title chart-summary">
+              <title id="chart-title">Ping over time</title>
+              <g class="chart-grid" aria-hidden="true">
+                <line x1="0" y1="66" x2="640" y2="66" vector-effect="non-scaling-stroke"/>
+                <line x1="0" y1="132" x2="640" y2="132" vector-effect="non-scaling-stroke"/>
+              </g>
+              <path id="chart-line" class="chart-line" d="" vector-effect="non-scaling-stroke"/>
+              <circle id="chart-dot" class="chart-dot" r="4" cx="0" cy="0" vector-effect="non-scaling-stroke" hidden/>
+            </svg>
+            <figcaption>
+              <p class="chart-summary" id="chart-summary" role="status">Waiting for the first sample…</p>
+              <p class="chart-span" id="chart-span"></p>
+            </figcaption>
+            <noscript><p class="footnote">Enable JavaScript to plot ping, CPU and memory.</p></noscript>
+          </figure>
+        </section>
         <section class="console-section" aria-labelledby="ssh">
           <h2 id="ssh">Remote access</h2>
           <div class="console">
