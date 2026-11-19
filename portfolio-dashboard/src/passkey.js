@@ -7,6 +7,17 @@
   const enroll = document.getElementById("passkey-enroll");
   const status = document.getElementById("passkey-status");
   const locked = document.getElementById("inbox-locked");
+  let enrollmentOpen = false;
+
+  function syncEnroll() {
+    enroll.disabled = !enrollmentOpen;
+    enroll.toggleAttribute("data-closed", !enrollmentOpen);
+    if (enrollmentOpen) {
+      enroll.removeAttribute("title");
+    } else {
+      enroll.title = "Setting up a passkey needs an enrollment window opened on the Pi.";
+    }
+  }
 
   async function post(endpoint, body = {}) {
     const response = await fetch("/messages/auth/" + endpoint, {
@@ -18,9 +29,13 @@
     });
     if (!response.ok) {
       const problem = await response.json().catch(() => ({}));
-      if (problem.error === "closed") throw Error("Passkey enrollment is closed. Ask the Pi administrator to open a new enrollment window.");
-      if (problem.error === "unregistered") throw Error("You haven’t registered a passkey yet. Use Set up a passkey.");
-      throw Error("Passkey verification failed. Please try again.");
+      const error = Error(problem.error === "closed"
+        ? "Passkey enrollment is closed. Ask the Pi administrator to open a new enrollment window."
+        : problem.error === "unregistered"
+          ? "You haven’t registered a passkey yet. Use Set up a passkey."
+          : "Passkey verification failed. Please try again.");
+      error.code = problem.error;
+      throw error;
     }
     return response.json();
   }
@@ -51,12 +66,13 @@
         authenticated();
       }
     } catch (error) {
+      if (error.code === "closed") enrollmentOpen = false;
       status.textContent = error.name === "NotAllowedError"
         ? "The passkey request was cancelled or timed out."
         : (error.message || "Passkey verification failed.");
     } finally {
       login.disabled = false;
-      enroll.disabled = false;
+      syncEnroll();
     }
   }
 
@@ -69,14 +85,21 @@
   }
   login.addEventListener("click", () => verify(false));
   enroll.addEventListener("click", () => verify(true));
+  // The broker only accepts a first registration while a root operator has an
+  // enrollment window open, so setup stays unavailable until it reports one.
+  syncEnroll();
+  post("enrollment")
+    .then(({ open }) => {
+      enrollmentOpen = open === true;
+      syncEnroll();
+    })
+    .catch(() => syncEnroll());
   if (locked) {
     login.disabled = false;
-    enroll.disabled = false;
     return;
   }
   post("session").then(authenticated).catch(() => {
     login.disabled = false;
-    enroll.disabled = false;
     status.textContent = "Sign in with your dashboard passkey.";
   });
 })();

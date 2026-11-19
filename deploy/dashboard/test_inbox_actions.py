@@ -106,10 +106,12 @@ class ActionsTest(unittest.TestCase):
     def enroll(self):
         with self.assertRaises(actions.Rejected):
             self.call("enroll-options")
+        self.assertEqual(self.call("enrollment"), {"ok": True, "open": False})
         open_request = {"action": "open-enrollment", "user": self.user}
         with self.assertRaises(actions.Rejected):
             self.broker.handle(open_request)
         self.broker.handle(open_request, issuer=True)
+        self.assertEqual(self.call("enrollment"), {"ok": True, "open": True})
         result = self.call("enroll-finish", **self.ceremony("enroll"))
         self.assertEqual(result, {"ok": True, "registered": True})
         with self.assertRaises(actions.Rejected):

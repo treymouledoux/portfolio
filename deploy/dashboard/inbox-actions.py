@@ -254,6 +254,10 @@ class Broker:
                 raise Rejected("closed")
             self.windows.setdefault(user, (now + 300,))
             return {"ok": True}
+        if action == "enrollment" and fields == basic:
+            # Read-only gate for the unlock screen: setup is only offered
+            # while a root operator has an enrollment window open.
+            return {"ok": True, "open": user in self.windows}
         if action in ("enroll-options", "login-options") and fields == basic:
             return self.begin(user, action == "enroll-options")
         if action in ("enroll-finish", "login-finish") and fields == basic | {"flow", "credential"}:

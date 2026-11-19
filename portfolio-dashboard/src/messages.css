@@ -8,7 +8,19 @@ a[aria-current="page"] { background: #25353e; color: var(--text); }
 .filter-bar { margin-bottom: .8rem; }
 .filter-bar a:last-child { margin-left: auto; color: var(--accent); }
 .page-head { margin-bottom: 1.3rem; }
-#passkey-panel { max-width: 35rem; padding: 1.4rem; }
+#inbox-locked { display: grid; place-items: center; min-height: clamp(17rem, 46vh, 27rem); }
+#inbox-locked #passkey-panel {
+  width: min(100%, 28rem);
+  align-items: center;
+  text-align: center;
+  padding: 2rem 1.75rem 1.85rem;
+  background: linear-gradient(165deg, rgba(24, 38, 46, 0.9), rgba(12, 20, 25, 0.95));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 24px 50px -38px rgba(0, 0, 0, 0.95);
+}
+#inbox-locked .passkey-badge { width: 3rem; height: 3rem; border-radius: 0.95rem; }
+#inbox-locked .passkey-badge svg { width: 1.45rem; height: 1.45rem; }
+#inbox-locked .passkey-actions { justify-content: center; }
+@media (max-width: 30rem) { #inbox-locked .passkey-actions, #inbox-locked .passkey-actions button { width: 100%; } }
 #passkey-sign-in { color: #07231f; background: var(--accent); border-color: var(--accent); }
 #passkey-status { color: var(--text); }
 #inbox-notice:not(:empty), .empty { margin-block: 1rem; color: var(--muted); font-size: .9rem; }

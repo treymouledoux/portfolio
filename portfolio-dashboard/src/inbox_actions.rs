@@ -40,6 +40,7 @@ struct Reply {
     registered: Option<bool>,
     session: Option<String>,
     hold: Option<String>,
+    open: Option<bool>,
 }
 
 fn session(headers: &HeaderMap) -> Option<&str> {
@@ -185,7 +186,8 @@ pub(super) async fn auth(
     };
     let mut cmd = json!({"action":step,"user":user});
     match step.as_str() {
-        "enroll-options" | "login-options" | "session" | "lock" if body == json!({}) => {}
+        "enrollment" | "enroll-options" | "login-options" | "session" | "lock"
+            if body == json!({}) => {}
         "enroll-finish" | "login-finish" => {
             let Ok(Finish { flow, credential }) = serde_json::from_value(body) else {
                 return StatusCode::BAD_REQUEST.into_response();
@@ -234,6 +236,7 @@ fn auth_reply(step: &str, reply: Reply) -> Response {
         return auth_error(reply.error.as_deref().unwrap_or("unavailable"));
     }
     match step {
+        "enrollment" => Json(json!({"open": reply.open.unwrap_or(false)})).into_response(),
         "enroll-options" | "login-options" => match (reply.flow, reply.public_key) {
             (Some(flow), Some(options)) if valid_hex(&flow, 64) && options.is_object() => {
                 Json(json!({"flow":flow,"publicKey":options})).into_response()

@@ -62,6 +62,8 @@ async function run() {
       if (action === "session") command.session = session;
       const result = await broker(command);
       assert.equal(result.ok, true, action + " was rejected");
+      if (action === "enrollment")
+        return route.fulfill({json:{open:result.open}});
       if (action === "login-finish") {
         assert.match(result.session, /^[a-f0-9]{64}$/);
         session = result.session;
@@ -87,7 +89,7 @@ async function run() {
     await page.getByRole("heading", {name:"Unlocked inbox"}).waitFor();
     assert.equal(page.url(), origin + "/messages");
     assert.equal(context.pages().length, 1);
-    assert.deepEqual(observed,["enroll-options","enroll-finish","login-options","login-finish"]);
+    assert.deepEqual(observed,["enrollment","enroll-options","enroll-finish","login-options","login-finish"]);
     console.log("Chromium virtual passkey registration, signed assertion and same-tab inbox unlock passed.");
   } finally {
     await browser.close();
