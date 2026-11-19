@@ -28,9 +28,8 @@ const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-eZePRR4YN0kniZmeetveLi2HKd6Q0zWjIY5vgkFF59U='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-Vw1LgfNs/MTG+I0KQ3qWadMa1pC062mwOGnV5Ph5bpI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-SM1MGwmvKiVaLC9I2tANbbB3OgX6X5fjRiK63pRVMFQ='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -175,37 +174,47 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
     let badge = path == "/embed/inbox-count";
-    let reader_form = path.starts_with("/messages/read/") || path.starts_with("/messages/unread/");
-    let reader_page = reader_form || path == "/messages/export";
-    let reader_resource = reader_page || path == "/messages/export/download" || badge;
+    let inbox_path = inbox || path.starts_with("/messages/");
     let auth_api = path.starts_with("/messages/auth/");
-    let action = matches!(path, "/messages/delete-all" | "/messages/passkey")
+    let destructive = path == "/messages/delete-all"
         || path.starts_with("/messages/action/")
-        || auth_api;
+        || matches!(path, "/messages/auth/arm" | "/messages/auth/cancel");
     let login = single_header(req.headers(), "tailscale-user-login");
     let allowed = login.is_some_and(|login| {
         app.viewers.contains(login)
-            && (!(inbox || action || reader_resource) || app.inbox_readers.contains(login))
-            && (!action || (app.admin_origin.is_some() && app.inbox_admins.contains(login)))
+            && (!(inbox_path || badge) || app.inbox_readers.contains(login))
+            && (!inbox_path || app.admin_origin.is_some())
+            && (!destructive || app.inbox_admins.contains(login))
     });
     let site = single_header(req.headers(), "sec-fetch-site");
     let dest = single_header(req.headers(), "sec-fetch-dest");
-    let embedding = inbox || badge || path == "/embed/status";
+    let embedding = badge || path == "/embed/status";
     let navigation = (req.method() == Method::GET || req.method() == Method::HEAD)
         && single_header(req.headers(), "sec-fetch-mode") == Some("navigate")
         && (path == "/"
             || (embedding && dest == Some("iframe"))
-            || ((action || reader_page) && dest == Some("document")));
+            || (inbox && dest == Some("document")));
     let foreign_request = req.headers().contains_key("sec-fetch-site")
         && !matches!(site, Some("same-origin" | "none"))
         && !navigation;
-    let blocked_action = (action || reader_page)
-        && ((dest.is_some() && dest != Some(if auth_api { "empty" } else { "document" }))
-            || (req.method() == Method::POST
-                && (site != Some("same-origin")
-                    || app.admin_origin.as_deref().is_none()
-                    || single_header(req.headers(), "origin") != app.admin_origin.as_deref())));
-    let denied = !allowed || foreign_request || blocked_action;
+    let wrong_destination = inbox_path
+        && dest.is_some_and(|d| {
+            if inbox || path == "/messages/passkey" {
+                d != "document"
+            } else if path == "/messages/export/download" {
+                !matches!(d, "document" | "empty")
+            } else {
+                d != "empty"
+            }
+        });
+    let wrong_origin = inbox_path
+        && req.method() == Method::POST
+        && (site != Some("same-origin")
+            || single_header(req.headers(), "origin") != app.admin_origin.as_deref());
+    let denied = !allowed || foreign_request || wrong_origin || wrong_destination;
+    // Only the explicitly embeddable count and the login/enrollment ceremony are
+    // available before unlock. Never open the archive to render a locked page.
+    let needs_session = inbox_path && !auth_api && path != "/messages/passkey";
     let hidden_badge = badge
         && login
             .is_some_and(|user| app.viewers.contains(user) && !app.inbox_readers.contains(user))
@@ -214,6 +223,12 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
         (StatusCode::FORBIDDEN, Html("")).into_response()
     } else if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
+    } else if needs_session && !inbox_actions::unlocked(req.headers()).await {
+        if inbox {
+            inbox::locked_page().into_response()
+        } else {
+            StatusCode::UNAUTHORIZED.into_response()
+        }
     } else {
         next.run(req).await
     };
@@ -226,20 +241,14 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     if embed_document {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(if inbox {
-                INBOX_CSP
-            } else if badge {
-                inbox::BADGE_CSP
-            } else {
-                EMBED_CSP
-            }),
+            HeaderValue::from_static(if badge { inbox::BADGE_CSP } else { EMBED_CSP }),
         );
     } else {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(if denied {
                 DENIAL_CSP
-            } else if action || reader_form {
+            } else if inbox_path {
                 ACTION_CSP
             } else {
                 CSP
@@ -253,7 +262,7 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     }
     headers.insert(
         header::REFERRER_POLICY,
-        HeaderValue::from_static(if (action || reader_form) && !denied {
+        HeaderValue::from_static(if inbox_path && !denied {
             "same-origin"
         } else {
             "no-referrer"
@@ -386,16 +395,9 @@ fn app(state: App) -> Router {
         .route("/api/check/{target}", axum::routing::post(test_service))
         .route("/messages", get(inbox::messages))
         .route("/embed/inbox-count", get(inbox::badge))
-        .route("/messages/export", get(inbox::export_page))
         .route("/messages/export/download", get(inbox::export))
-        .route(
-            "/messages/read/{id}",
-            get(inbox::mark_page).post(inbox::mark),
-        )
-        .route(
-            "/messages/unread/{id}",
-            get(inbox::mark_page).post(inbox::mark),
-        )
+        .route("/messages/read/{id}", axum::routing::post(inbox::mark))
+        .route("/messages/unread/{id}", axum::routing::post(inbox::mark))
         .route("/messages/delete-all", get(inbox_actions::preview_all))
         .route("/messages/passkey", get(inbox_actions::passkey_page))
         .route(
@@ -413,6 +415,24 @@ fn app(state: App) -> Router {
             }),
         )
         .route(
+            "/messages.css",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    include_str!("messages.css"),
+                )
+            }),
+        )
+        .route(
+            "/messages.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    include_str!("messages.js"),
+                )
+            }),
+        )
+        .route(
             "/hold-delete.js",
             get(|| async {
                 (
@@ -423,8 +443,7 @@ fn app(state: App) -> Router {
         )
         .route(
             "/messages/action/{action}/{id}",
-            get(inbox_actions::preview_one)
-                .post(inbox_actions::commit)
+            axum::routing::post(inbox_actions::commit)
                 .layer(axum::extract::DefaultBodyLimit::max(128)),
         )
         .route(

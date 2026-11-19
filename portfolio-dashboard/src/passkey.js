@@ -6,7 +6,7 @@
   const login = document.getElementById("passkey-sign-in");
   const enroll = document.getElementById("passkey-enroll");
   const status = document.getElementById("passkey-status");
-  const form = document.getElementById("delete-form");
+  const locked = document.getElementById("inbox-locked");
 
   async function post(endpoint, body = {}) {
     const response = await fetch("/messages/auth/" + endpoint, {
@@ -20,7 +20,7 @@
       const problem = await response.json().catch(() => ({}));
       if (problem.error === "closed") throw Error("Passkey enrollment is closed. Ask the Pi administrator to open a new enrollment window.");
       if (problem.error === "unregistered") throw Error("You haven’t registered a passkey yet. Use Set up a passkey.");
-      throw Error("Authorization failed. Try again or reopen the private confirmation page.");
+      throw Error("Passkey verification failed. Please try again.");
     }
     return response.json();
   }
@@ -29,7 +29,7 @@
     login.hidden = true;
     enroll.hidden = true;
     status.textContent = "Passkey verified.";
-    if (form) form.hidden = false;
+    if (locked) window.location.reload();
   }
 
   async function verify(register) {
@@ -69,6 +69,11 @@
   }
   login.addEventListener("click", () => verify(false));
   enroll.addEventListener("click", () => verify(true));
+  if (locked) {
+    login.disabled = false;
+    enroll.disabled = false;
+    return;
+  }
   post("session").then(authenticated).catch(() => {
     login.disabled = false;
     enroll.disabled = false;

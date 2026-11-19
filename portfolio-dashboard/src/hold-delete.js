@@ -1,16 +1,18 @@
-(() => {
-  "use strict";
+"use strict";
 
-  const form = document.getElementById("delete-form");
-  if (!form) return;
+if (window.top === window.self) {
+  document.querySelectorAll(".remove-form").forEach(setupHoldConfirmation);
+}
 
-  const button = form.querySelector("#hold-delete");
+function setupHoldConfirmation(form) {
+  const button = form.querySelector(".hold-delete");
   const label = button.querySelector("span");
-  const help = form.querySelector("#hold-help");
+  const help = form.querySelector(".hold-help");
   const field = form.elements.namedItem("hold");
   const holdMs = 5000;
   let generation = 0;
   let token = "";
+  let target = "";
   let active = null;
   let timer;
   let suppressClick = false;
@@ -21,7 +23,7 @@
     help.textContent = instruction;
   }
 
-  function idle(instruction = "Click to arm, then hold for five seconds to confirm.") {
+  function idle(instruction = "") {
     field.disabled = true;
     field.value = "";
     button.disabled = false;
@@ -52,11 +54,25 @@
     const attempt = ++generation;
     state("arming", "Arming…", "Preparing a confirmation for this selection.");
     try {
+      target = form.dataset.id;
+      let caption = "Hold to remove";
+      if (form.dataset.operation === "delete-all") {
+        const result = await fetch("/messages/delete-all", { cache: "no-store" });
+        if (result.status === 401 || result.status === 403) { window.location.reload(); return; }
+        if (!result.ok) throw Error();
+        const snapshot = await result.json();
+        if (!Number.isSafeInteger(snapshot.count) || snapshot.count < 1) throw Error();
+        if (attempt !== generation) return;
+        target = snapshot.id;
+        caption = `Hold to remove all ${snapshot.count}`;
+      }
+      if (!/^[a-f0-9]{64}$/.test(target)) throw Error();
       const response = await fetch("/messages/auth/arm", {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation: form.dataset.operation, id: form.dataset.id }),
+        body: JSON.stringify({ operation: form.dataset.operation, id: target }),
       });
+      if (response.status === 401 || response.status === 403) { window.location.reload(); return; }
       if (!response.ok) throw new Error();
       const { hold } = await response.json();
       if (typeof hold !== "string" || !/^[a-f0-9]{64}$/.test(hold)) throw new Error();
@@ -65,7 +81,7 @@
         return;
       }
       token = hold;
-      state("armed", "Hold to confirm", "Hold the button, Space, or Enter for five seconds. Release early or press Escape to cancel.");
+      state("armed", caption, "Hold for five seconds to permanently remove. Release early or press Escape to cancel.");
     } catch {
       if (attempt === generation) idle("Couldn’t arm this action. Reload the page to check your session and try again.");
     }
@@ -89,7 +105,7 @@
     token = "";
     state("submitting", "Removing…", "Submitting your confirmed selection.");
     button.disabled = true;
-    form.requestSubmit();
+    commit();
   }
 
   function start(input) {
@@ -100,10 +116,27 @@
     tick();
   }
 
-  // No default submit control. Only a completed gesture can submit this form.
-  form.addEventListener("submit", event => {
-    if (button.dataset.state !== "submitting") event.preventDefault();
-  });
+  // The broker verifies the token, target and elapsed time again at commit.
+  async function commit() {
+    try {
+      const response = await fetch("/messages/action/" + form.dataset.operation + "/" + target, {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        body: new URLSearchParams({ hold: field.value }),
+      });
+      if (response.status === 401 || response.status === 403) { window.location.reload(); return; }
+      if (response.status === 409) { idle("The inbox changed. Review the messages and try again."); return; }
+      if (response.status !== 204) throw Error();
+      if (new URLSearchParams(location.search).has("before")) {
+        const url = new URL(location.href);
+        url.searchParams.delete("before");
+        location.replace(url);
+      } else { location.reload(); }
+    } catch {
+      idle("Couldn’t verify the result. Refresh the inbox before trying again.");
+    }
+  }
+
+  form.addEventListener("submit", event => event.preventDefault());
   button.addEventListener("click", event => {
     event.preventDefault();
     if (!suppressClick && button.dataset.state === "idle") {
@@ -162,4 +195,4 @@
     if (event.persisted) idle();
   });
   idle();
-})();
+}

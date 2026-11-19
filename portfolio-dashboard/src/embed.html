@@ -78,9 +78,19 @@
         line-height: 1.55;
       }
       .readout { color: var(--text); margin: .6rem 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
-      .checks { display: flex; gap: .4rem 1rem; flex-wrap: wrap; }
-      a { color: var(--accent); font-size: .85rem; line-height: 2; text-underline-offset: .2em; }
-      a:focus-visible { outline: 2px solid currentColor; outline-offset: .15rem; }
+      article:not(.host) { display: flex; flex-direction: column; }
+      .checks { display: flex; gap: .45rem; flex-wrap: wrap; padding-top: .8rem; margin-top: auto; }
+      .probe {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-height: 2rem; padding: .35rem .7rem;
+        border: 1px solid #35524f; border-radius: .5rem;
+        background: #152a29; color: var(--accent);
+        font-size: .78rem; font-weight: 600; line-height: 1.2; text-decoration: none;
+      }
+      .probe:hover { border-color: #648f86; background: #1a3733; }
+      .probe:active { background: #102421; }
+      .probe:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      @media (pointer: coarse) { .probe { min-height: 2.75rem; } }
       .host { grid-column: 1 / -1; }
       .host dl { display: flex; flex-wrap: wrap; gap: .65rem 2rem; margin: .7rem 0; }
       dt { font-size: .75rem; color: var(--faint); }
@@ -99,13 +109,13 @@
         <p class="reading {{WEBSITE_TONE}}">{{WEBSITE_STATUS}}</p>
         <p class="detail">HTTPS health response from the Pi</p>
         <p class="readout">{{WEB_MS}}</p>
-        <a href="/embed/status?test=website">Test HTTPS</a>
+        <div class="checks"><a class="probe" href="/embed/status?test=website">Test HTTPS</a></div>
       </article>
       <article>
         <header><h2>JetKVM</h2><span class="protocol">TCP</span></header>
         <p class="reading {{JETKVM_TONE}}">{{JETKVM_STATUS}}</p>
         <p class="detail">TCP connect {{TCP_MS}} · ICMP ping {{PING_MS}}</p>
-        <div class="checks"><a href="/embed/status?test=jetkvm">Test socket</a><a href="/embed/status?test=ping">Test ping</a></div>
+        <div class="checks"><a class="probe" href="/embed/status?test=jetkvm">Test socket</a><a class="probe" href="/embed/status?test=ping">Test ping</a></div>
       </article>
       <article>
         <header><h2>Muse</h2><span class="protocol">TAILNET</span></header>

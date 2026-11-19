@@ -181,6 +181,23 @@ class ActionsTest(unittest.TestCase):
         with self.assertRaises(actions.Rejected):
             self.call("arm", session=self.session, operation="delete", id=FIRST_ID)
 
+    def test_reader_and_lock_cannot_erase(self):
+        self.broker.admins = frozenset()
+        self.assertTrue(self.call("session", session=self.session)["ok"])
+        for action, args in [("snapshot", {}), ("arm", {"operation": "delete", "id": FIRST_ID})]:
+            with self.assertRaises(actions.Rejected):
+                self.call(action, session=self.session, **args)
+        self.broker.admins = frozenset({self.user})
+        pending = self.approve("delete", FIRST_ID)
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle({"action": "snapshot"})
+        self.assertTrue(self.call("lock", session=self.session)["ok"])
+        with self.assertRaises(actions.Rejected):
+            self.call("session", session=self.session)
+        with self.assertRaises(actions.Rejected):
+            self.broker.handle(pending)
+        self.assertEqual(self.file.read_bytes(), FIRST + SECOND)
+
     def test_scoped_once_only_approval_and_replacement(self):
         request = self.approve("delete", FIRST_ID)
         with self.assertRaises(ValueError):
@@ -199,7 +216,7 @@ class ActionsTest(unittest.TestCase):
             self.broker.handle(request)
 
     def test_expiry_ambiguous_partial_and_stale_bulk(self):
-        snap = self.broker.handle({"action": "snapshot"})
+        snap = self.call("snapshot", session=self.session)
         self.assertEqual(snap["count"], 2)
         bulk = self.approve("delete-all", snap["snapshot"])
         with self.file.open("ab") as f:
@@ -212,10 +229,10 @@ class ActionsTest(unittest.TestCase):
         with self.file.open("ab") as f:
             f.write(b"partial")
         with self.assertRaises(OSError):
-            self.broker.handle({"action": "snapshot"})
+            self.call("snapshot", session=self.session)
 
     def test_bulk_and_retry_after_failed_replacement(self):
-        snap = self.broker.handle({"action": "snapshot"})
+        snap = self.call("snapshot", session=self.session)
         bulk = self.approve("delete-all", snap["snapshot"])
         with mock.patch.object(os, "replace", side_effect=OSError("simulated failure")):
             with self.assertRaises(OSError):

@@ -33,12 +33,6 @@ https://treymouledoux.me {
 	bind 192.0.2.1 2001:db8::1
 	tls /etc/caddy/tls/apex-fullchain.pem /etc/caddy/tls/apex-key.pem
 
-	map {path} {dashboard_file} {
-		/dashboard/messages /messages.html
-		/dashboard/messages/ /messages.html
-		default /landing.html
-	}
-
 	@landing {
 		method GET HEAD
 		path /dashboard /dashboard/ /dashboard/messages /dashboard/messages/
@@ -54,15 +48,17 @@ https://treymouledoux.me {
 	route {
 		handle @landing {
 			header {
-				Content-Security-Policy "default-src 'none'; style-src 'sha256-u9V6pX+kamK3zmjVTMMShaKJ4waTuXlN2Kb+C/wFI2o=' 'sha256-/i0axvLgm/eHGDXLnPWA7r+cWVIoCa5zlKeWJgxc5Hw='; script-src 'sha256-9xSLQGG7lRmOi9glYVydAmm95M/OGwCeumFIe3ZrluE='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+				Content-Security-Policy "default-src 'none'; style-src 'sha256-aAh1Bmji4tf7y3JoPHqNwoAbuzArr5kW1V5XqosjXZQ=' 'sha256-hIckcYnXMygrcWY3/9z5fBleFGoTV0gFVYJ5V6gYiak='; script-src 'sha256-9xSLQGG7lRmOi9glYVydAmm95M/OGwCeumFIe3ZrluE='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 				Cache-Control "private, no-store"
 				Referrer-Policy no-referrer
 				X-Content-Type-Options nosniff
 				X-Frame-Options DENY
 				X-Robots-Tag noindex
 			}
+			@messages path /dashboard/messages /dashboard/messages/
+			redir @messages https://status.example.invalid:8443/messages 302
 			root * /usr/local/share/portfolio-dashboard
-			rewrite * {dashboard_file}
+			rewrite * /landing.html
 			file_server
 		}
 		handle @private {

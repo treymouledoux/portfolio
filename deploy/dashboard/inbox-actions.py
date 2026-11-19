@@ -123,12 +123,13 @@ def hex_token(value):
 
 
 class Broker:
-    def __init__(self, directory, key_database, origin, admins, clock=time.monotonic):
+    def __init__(self, directory, key_database, origin, admins, clock=time.monotonic, *, readers=None):
         if not re.fullmatch(r"https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+ts\.net:8443", origin):
             raise ValueError("expected exact private dashboard HTTPS origin")
         self.directory = directory
         self.origin = origin
         self.admins = frozenset(admins)
+        self.readers = self.admins if readers is None else frozenset(readers)
         self.clock = clock
         self.server = Fido2Server(
             {"id": urlsplit(origin).hostname, "name": "Portfolio dashboard"},
@@ -244,12 +245,8 @@ class Broker:
         self.prune(now)
         action = request.get("action")
         fields = set(request)
-        if action == "snapshot" and fields == {"action"}:
-            with locked_store(self.directory, exclusive=False) as data:
-                digest, count, _ = scan(data)
-            return {"ok": True, "snapshot": digest, "count": count}
         user = request.get("user")
-        if not isinstance(user, str) or user not in self.admins:
+        if not isinstance(user, str) or user not in self.readers:
             raise Rejected()
         basic = {"action", "user"}
         if action == "open-enrollment" and issuer and fields == basic:
@@ -268,6 +265,18 @@ class Broker:
         basic.add("session")
         if action == "session" and fields == basic:
             return {"ok": True}
+        if action == "lock" and fields == basic:
+            del self.sessions[session]
+            for key, value in list(self.holds.items()):
+                if value[1] == session:
+                    del self.holds[key]
+            return {"ok": True}
+        if user not in self.admins:
+            raise Rejected()
+        if action == "snapshot" and fields == basic:
+            with locked_store(self.directory, exclusive=False) as data:
+                digest, count, _ = scan(data)
+            return {"ok": True, "snapshot": digest, "count": count}
         hold = request.get("hold")
         if action == "cancel" and fields == basic | {"hold"}:
             previous = self.holds.get(hold)
@@ -332,6 +341,7 @@ def serve():
         STORE, "/var/lib/portfolio-inbox-auth/credentials.sqlite3",
         os.environ["DASHBOARD_ADMIN_ORIGIN"],
         [v.strip() for v in os.environ["DASHBOARD_INBOX_ADMINS"].split(",") if v.strip()],
+        readers=[v.strip() for v in os.environ["DASHBOARD_INBOX_READERS"].split(",") if v.strip()],
     )
     # A hard power loss can leave a pre-rename temporary file. Only the
     # broker has directory write permission; clear its interrupted rewrites.

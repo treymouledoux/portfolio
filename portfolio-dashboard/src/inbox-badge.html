@@ -1,6 +1,10 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Message count</title>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Message count</title>
 <style>
-:root { color-scheme: dark; font: 600 11px/1.5 system-ui,sans-serif; color: #8ee6d5; }
-body { margin: 0; }
-span { display: inline-block; white-space: nowrap; padding: 1px 6px; border: 1px solid #2e434e; border-radius: 6px; background: #121d24; }
-</style></head><body><span>{{COUNT}}</span></body></html>
+  :root { color-scheme: dark; font: 650 11px/1 system-ui, sans-serif; color: #9aeee0; }
+  html, body { margin: 0; height: 100%; background: transparent; }
+  body { display: grid; place-items: center; }
+  .badge { box-sizing: border-box; display: grid; place-items: center; min-width: 1.25rem; height: 100%; padding: 0 3px; border: 1px solid #345651; border-radius: 999px; background: #18332f; font-variant-numeric: tabular-nums; }
+  .empty { color: #a6b8be; background: #172229; border-color: #34454e; }
+</style></head>
+<body><span class="badge {{TONE}}" role="img" aria-label="{{DETAIL}}">{{COUNT}}</span></body></html>

@@ -262,7 +262,7 @@ async fn frames_are_limited_to_the_two_statuses_and_exact_parent() {
 }
 
 #[tokio::test]
-async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation() {
+async fn inbox_requires_a_reader_and_exposes_only_a_lock_screen_to_top_level_navigation() {
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
         jetkvm: JetKvm::Reachable,
@@ -271,7 +271,7 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
     let state = App {
         viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
         inbox_admins: Arc::new(HashSet::new()),
-        admin_origin: None,
+        admin_origin: Some("https://pi.example.ts.net:8443".into()),
         inbox_readers: Arc::new(parse_viewers("owner@example.test,outsider@example.test").unwrap()),
         status,
         probes: None,
@@ -283,7 +283,8 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
         .route("/messages", get(|| async { Html("fixture") }))
         .layer(middleware::from_fn_with_state(state, protect));
     for (login, mode, dest, expected) in [
-        (OWNER, "navigate", "iframe", StatusCode::OK),
+        (OWNER, "navigate", "document", StatusCode::OK),
+        (OWNER, "navigate", "iframe", StatusCode::FORBIDDEN),
         (OWNER, "cors", "empty", StatusCode::FORBIDDEN),
         (OWNER, "no-cors", "image", StatusCode::FORBIDDEN),
         (
@@ -321,9 +322,11 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
         if expected == StatusCode::OK {
             assert_eq!(
                 response.headers()[header::CONTENT_SECURITY_POLICY],
-                INBOX_CSP
+                ACTION_CSP
             );
-            assert!(INBOX_CSP.contains("frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox;"));
+            assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+            let body = to_bytes(response.into_body(), 65536).await.unwrap();
+            assert_eq!(body.as_ref(), inbox::locked_page().0.as_bytes());
         } else {
             assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         }
@@ -348,49 +351,49 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
         pi_machine: None,
         pi_ssh_user: None,
     });
-    // A malformed hold verifies which callers reach the form handler without contacting the broker.
+    // Even valid same-origin admin requests are rejected before the handler without a verified session.
     for (user, origin, site, dest, expected) in [
         (
             OWNER,
             Some(ORIGIN),
             Some("same-origin"),
-            "document",
-            StatusCode::BAD_REQUEST,
+            "empty",
+            StatusCode::UNAUTHORIZED,
         ),
         (
             "reader@example.test",
             Some(ORIGIN),
             Some("same-origin"),
-            "document",
+            "empty",
             StatusCode::FORBIDDEN,
         ),
         (
             OWNER,
             Some("https://treymouledoux.me"),
             Some("same-origin"),
-            "document",
+            "empty",
             StatusCode::FORBIDDEN,
         ),
         (
             OWNER,
             None,
             Some("same-origin"),
-            "document",
+            "empty",
             StatusCode::FORBIDDEN,
         ),
         (
             OWNER,
             Some("null"),
             Some("same-origin"),
-            "document",
+            "empty",
             StatusCode::FORBIDDEN,
         ),
-        (OWNER, Some(ORIGIN), None, "document", StatusCode::FORBIDDEN),
+        (OWNER, Some(ORIGIN), None, "empty", StatusCode::FORBIDDEN),
         (
             OWNER,
             Some(ORIGIN),
             Some("cross-site"),
-            "document",
+            "empty",
             StatusCode::FORBIDDEN,
         ),
         (
@@ -424,7 +427,7 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
             response.headers()[header::CACHE_CONTROL],
             "private, no-store"
         );
-        if expected == StatusCode::BAD_REQUEST {
+        if expected == StatusCode::UNAUTHORIZED {
             assert_eq!(
                 response.headers()[header::CONTENT_SECURITY_POLICY],
                 ACTION_CSP
@@ -451,14 +454,13 @@ fn inbox_admin_forms_do_not_elevate_contact_markup_or_accept_non_hex_ids() {
         assert!(!inbox_actions::valid_hex(value, 64));
     }
     assert!(inbox_actions::valid_hex(&"a".repeat(64), 64));
-    assert!(!INBOX_CSP.contains("allow-forms") && !INBOX_CSP.contains("allow-scripts"));
     assert!(
         ACTION_CSP.contains("frame-ancestors 'none'") && ACTION_CSP.contains("form-action 'self'")
     );
 }
 
 #[tokio::test]
-async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_parsing() {
+async fn authentication_api_allows_configured_readers_and_rejects_cross_origin_requests() {
     const ORIGIN: &str = "https://pi.example.ts.net:8443";
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
@@ -489,7 +491,7 @@ async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_p
             "reader@example.test",
             ORIGIN,
             "same-origin",
-            StatusCode::FORBIDDEN,
+            StatusCode::BAD_REQUEST,
         ),
     ] {
         let req = Request::builder()
@@ -512,7 +514,7 @@ async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_p
     }
     for (user, status) in [
         (OWNER, StatusCode::OK),
-        ("reader@example.test", StatusCode::FORBIDDEN),
+        ("reader@example.test", StatusCode::OK),
     ] {
         let req = Request::builder()
             .uri("/messages/passkey")
@@ -591,7 +593,7 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
             "same-origin",
             "document",
             "",
-            "yes",
+            "no",
         ),
         (
             OWNER,
@@ -607,9 +609,9 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
             "/messages/read/abc",
             "POST",
             "same-origin",
-            "document",
+            "empty",
             "https://pi.example.ts.net:8443",
-            "yes",
+            "no",
         ),
     ] {
         let req = Request::builder()

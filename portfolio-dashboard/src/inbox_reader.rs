@@ -75,7 +75,7 @@ fn visit_snapshot(file: File, mut visit: impl FnMut(&[u8]) -> io::Result<()>) ->
     }
 }
 
-fn counts(file: File, dir: &Path) -> io::Result<(u64, u64)> {
+pub(super) fn counts(file: File, dir: &Path) -> io::Result<(u64, u64)> {
     let mut total = 0;
     let mut unread = 0;
     visit_snapshot(file, |row| {
@@ -103,7 +103,16 @@ pub(crate) async fn badge(headers: HeaderMap) -> Response {
     {
         Ok(Ok((total, unread))) => Html(
             include_str!("inbox-badge.html")
-                .replace("{{COUNT}}", &format!("{unread} unread / {total}")),
+                .replace(
+                    "{{COUNT}}",
+                    &if unread > 99 {
+                        "99+".into()
+                    } else {
+                        unread.to_string()
+                    },
+                )
+                .replace("{{TONE}}", if unread == 0 { "empty" } else { "" })
+                .replace("{{DETAIL}}", &format!("{unread} unread / {total} total")),
         )
         .into_response(),
         _ => unavailable(),
@@ -142,10 +151,6 @@ pub(super) fn filtered_page(
     }
 }
 
-fn reader_document(content: &str) -> Response {
-    Html(format!(r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Contact messages</title><link rel="stylesheet" href="/dashboard.css"></head><body><main class="wrap inbox-action">{content}<p><a href="https://treymouledoux.me/dashboard/messages" rel="noreferrer">Back to messages</a></p></main></body></html>"#)).into_response()
-}
-
 fn mark_request(path: &str, id: &str, query: Option<&str>) -> Option<(bool, u64)> {
     let read = path.starts_with("/messages/read/");
     let before = query?.strip_prefix("end=")?.parse::<u64>().ok()?;
@@ -158,31 +163,6 @@ fn find_entry(id: &str, end: u64) -> io::Result<Option<Entry>> {
         .into_iter()
         .next()
         .filter(|e| e.end == end && e.id == id))
-}
-
-pub(crate) async fn mark_page(RoutePath(id): RoutePath<String>, uri: Uri) -> Response {
-    let Some((read, end)) = mark_request(uri.path(), &id, uri.query()) else {
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-    match tokio::task::spawn_blocking(move || find_entry(&id, end)).await {
-        Ok(Ok(Some(entry))) => {
-            let label = if read {
-                "Mark as read"
-            } else {
-                "Mark as unread"
-            };
-            let mut html = format!("<h1>{label}</h1><p>");
-            escape(&entry.data.name, &mut html);
-            html.push_str(" · ");
-            escape(&entry.data.received_at, &mut html);
-            html.push_str(&format!(
-                r#"</p><form method="post"><button type="submit">{label}</button></form>"#
-            ));
-            reader_document(&html)
-        }
-        Ok(Ok(None)) => StatusCode::CONFLICT.into_response(),
-        _ => unavailable(),
-    }
 }
 
 pub(crate) async fn mark(
@@ -205,17 +185,10 @@ pub(crate) async fn mark(
     })
     .await
     {
-        Ok(Ok(true)) => axum::response::Redirect::to("https://treymouledoux.me/dashboard/messages")
-            .into_response(),
+        Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(false)) => StatusCode::CONFLICT.into_response(),
         _ => unavailable(),
     }
-}
-
-pub(crate) async fn export_page() -> Response {
-    reader_document(
-        r#"<h1>Export messages</h1><p>Download the locally stored submissions as a JSON file containing sender names, email addresses, timestamps, and message text.</p><a href="/messages/export/download" download="contact-messages.json">Download JSON</a>"#,
-    )
 }
 
 struct ExportStream(mpsc::Receiver<io::Result<Bytes>>);

@@ -1,7 +1,7 @@
 #[path = "inbox_reader.rs"]
 mod reader;
-pub(super) use reader::{badge, export, export_page, mark, mark_page};
-pub(super) const BADGE_CSP: &str = "default-src 'none'; style-src 'sha256-JPzapb25wJpQbOhKSaBgyUerOVDT64jnvhDFIu1MHI4='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+pub(super) use reader::{badge, export, mark};
+pub(super) const BADGE_CSP: &str = "default-src 'none'; style-src 'sha256-zhIDt/Sy1teYyEPTgKh9PFPMEKmd0gN16w5acUKlZeA='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
 use super::*;
 use axum::extract::RawQuery;
@@ -119,8 +119,30 @@ fn escape(value: &str, output: &mut String) {
     }
 }
 
-pub(super) fn render_entry(entry: &Entry, html: &mut String, admin: bool) {
-    render_card(entry, html, admin, None, false);
+pub(super) fn locked_page() -> Html<String> {
+    let panel = include_str!("passkey-panel.html")
+        .replace(
+            "Checking your session…",
+            "This inbox is locked. Unlock it to view and manage contact submissions.",
+        )
+        .replace("Sign in with passkey", "Unlock with passkey");
+    let entries = format!(
+        r#"<section id="inbox-locked">{panel}<noscript>Enable JavaScript to unlock with a passkey.</noscript></section>"#
+    );
+    Html(
+        include_str!("messages.html")
+            .replace("{{BADGE}}", "")
+            .replace("{{LOCK_CONTROL}}", "")
+            .replace("{{ENTRIES}}", &entries),
+    )
+}
+
+fn remove_form(operation: &str, id: &str, label: &str) -> String {
+    format!(
+        r#"<form class="remove-form" data-operation="{operation}" data-id="{id}">
+<button class="hold-delete" type="button" data-label="{label}" aria-describedby="help-{operation}-{id}" disabled><span>{label}</span></button>
+<input type="hidden" name="hold" disabled><small id="help-{operation}-{id}" class="hold-help" role="status"></small></form>"#
+    )
 }
 
 fn render_card(entry: &Entry, html: &mut String, admin: bool, read: Option<bool>, can_mark: bool) {
@@ -137,16 +159,22 @@ fn render_card(entry: &Entry, html: &mut String, admin: bool, read: Option<bool>
     html.push_str("</p><p class=\"message\" dir=\"auto\">");
     escape(&entry.data.message, html);
     html.push_str("</p>");
+    if can_mark || admin {
+        html.push_str(r#"<div class="entry-actions">"#);
+    }
     if let (true, Some(read)) = (can_mark, read) {
         let (route, label) = if read {
-            ("unread", "Mark unread")
+            ("unread", "Mark as unread")
         } else {
-            ("read", "Mark read")
+            ("read", "Mark as read")
         };
-        html.push_str(&format!(r#"<a class="mark" href="/messages/{route}/{}?end={}" target="_blank" rel="noopener noreferrer">{label}</a>"#,entry.id,entry.end));
+        html.push_str(&format!(r#"<form class="mark-form" method="post" action="/messages/{route}/{}?end={}"><button type="submit" disabled>{label}</button></form>"#,entry.id,entry.end));
     }
     if admin {
-        html.push_str(&format!(r#"<a class="remove" href="/messages/action/delete/{}?end={}" target="_blank" rel="noopener noreferrer">Remove</a>"#, entry.id, entry.end));
+        html.push_str(&remove_form("delete", &entry.id, "Remove message"));
+    }
+    if can_mark || admin {
+        html.push_str("</div>");
     }
     html.push_str("</article>");
 }
@@ -158,6 +186,7 @@ fn render(
     unread_only: bool,
     dir: &Path,
     can_mark: bool,
+    (total, unread): (u64, u64),
 ) -> io::Result<String> {
     let mut html = String::new();
     let all_current = if unread_only {
@@ -170,15 +199,17 @@ fn render(
     } else {
         ""
     };
-    html.push_str(&format!(r#"<nav aria-label="Message filters"><a href="/messages"{all_current}>All messages</a><a href="/messages?filter=unread"{unread_current}>Unread</a><a href="/messages/export" target="_blank" rel="noopener noreferrer">Export JSON</a></nav>"#));
+    html.push_str(&format!(r#"<nav class="filter-bar" aria-label="Message filters"><a href="/messages"{all_current}>All messages</a><a href="/messages?filter=unread"{unread_current}>Unread</a><a href="/messages/export/download" download="contact-messages.json">Export JSON</a></nav>"#));
     if page.entries.is_empty() {
         html.push_str(if unread_only {
-            "<p>No unread messages.</p>"
+            r#"<p class="empty">No unread messages.</p>"#
         } else {
-            "<p>No messages yet.</p>"
+            r#"<p class="empty">No messages yet.</p>"#
         });
     } else if admin && !unread_only {
-        html.push_str(r#"<p class="bulk"><a class="remove" href="/messages/delete-all" target="_blank" rel="noopener noreferrer">Remove all messages</a></p>"#);
+        html.push_str(r#"<div class="bulk">"#);
+        html.push_str(&remove_form("delete-all", "", "Remove all messages"));
+        html.push_str("</div>");
     }
     for entry in &page.entries {
         render_card(
@@ -189,7 +220,7 @@ fn render(
             can_mark,
         );
     }
-    html.push_str("<nav aria-label=\"Message pages\">");
+    html.push_str(r#"<nav class="page-links" aria-label="Message pages">"#);
     if paginated {
         let url = if unread_only {
             "/messages?filter=unread"
@@ -208,11 +239,25 @@ fn render(
             "<a href=\"/messages?before={before}{filter}\">Older messages</a>"
         ));
     }
-    if admin {
-        html.push_str(r#"<a href="/messages/passkey" target="_blank" rel="noopener noreferrer">Dashboard passkey</a>"#);
-    }
     html.push_str("</nav>");
-    Ok(include_str!("messages.html").replace("{{ENTRIES}}", &html))
+    let digits = if unread > 99 {
+        "99+".into()
+    } else {
+        unread.to_string()
+    };
+    let badge = format!(
+        r#"<span class="unread-count" aria-label="{unread} unread of {total} total" title="{unread} unread of {total} total">{digits}</span>"#
+    );
+    Ok(include_str!("messages.html")
+        .replace("{{BADGE}}", &badge)
+        .replace(
+            "{{LOCK_CONTROL}}",
+            r#"<button id="inbox-lock" type="button" disabled>Lock inbox</button>"#,
+        )
+        .replace(
+            "{{ENTRIES}}",
+            &format!(r#"<div id="inbox-notice" role="status"></div>{html}"#),
+        ))
 }
 
 fn open_archive() -> io::Result<std::fs::File> {
@@ -266,7 +311,16 @@ pub(super) async fn messages(
     let result = tokio::task::spawn_blocking(move || {
         let _slot = slot;
         let page = reader::filtered_page(open_archive()?, before, unread_only, &dir)?;
-        render(page, before.is_some(), admin, unread_only, &dir, can_mark)
+        let counts = reader::counts(open_archive()?, &dir)?;
+        render(
+            page,
+            before.is_some(),
+            admin,
+            unread_only,
+            &dir,
+            can_mark,
+            counts,
+        )
     })
     .await;
     match result {
@@ -314,6 +368,7 @@ mod tests {
             false,
             Path::new("/does-not-exist"),
             true,
+            (16, 16),
         )
         .unwrap();
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt; &amp; done"));
@@ -326,10 +381,18 @@ mod tests {
             false,
             Path::new("/does-not-exist"),
             true,
+            (16, 16),
         )
         .unwrap();
-        assert!(html.contains("/messages/delete-all") && html.contains("/messages/action/delete/"));
-        assert!(!html.contains("<form"));
+        assert!(
+            html.contains(r#"data-operation="delete-all""#)
+                && html.contains(r#"data-operation="delete""#)
+        );
+        assert!(html.contains(r#"class="mark-form" method="post""#));
+        assert!(!html.contains(r#"target="_blank""#));
+        let locked = locked_page().0;
+        assert!(locked.contains("Unlock with passkey"));
+        assert!(!locked.contains("mark-form") && !locked.contains("remove-form"));
         data.extend(self::line("new"));
         data.extend(b"{\"name\":");
         assert_eq!(

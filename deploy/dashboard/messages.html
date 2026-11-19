@@ -3,155 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Messages · Tailnet dashboard</title>
+    <meta name="referrer" content="no-referrer">
+    <title>Private inbox · Trey Mouledoux</title>
     <style>
-      :root {
-        color-scheme: dark;
-        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
-        --bg: #070b0e;
-        --line: #1f2e36;
-        --line-soft: #18242c;
-        --text: #e8f1f3;
-        --muted: #9fb2ba;
-        --faint: #778b94;
-        --accent: #8ee6d5;
-        --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
-        color: var(--text);
-        background-color: var(--bg);
-      }
-      * { box-sizing: border-box; }
-      body {
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-        margin: 0;
-        background-color: var(--bg);
-        background-image:
-          radial-gradient(58rem 30rem at 82% -14%, rgba(62, 168, 151, 0.17), transparent 64%),
-          linear-gradient(to right, rgba(148, 190, 196, 0.035) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(148, 190, 196, 0.035) 1px, transparent 1px);
-        background-size: auto, 48px 48px, 48px 48px;
-        background-attachment: fixed;
-      }
-      .wrap { width: min(100% - 2.25rem, 60rem); margin-inline: auto; }
-      .masthead {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        border-bottom: 1px solid var(--line-soft);
-        background: rgba(7, 11, 14, 0.76);
-        -webkit-backdrop-filter: blur(14px) saturate(130%);
-        backdrop-filter: blur(14px) saturate(130%);
-      }
-      .masthead-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 4.25rem; flex-wrap: wrap; padding-block: 0.65rem; }
-      .brand { display: flex; align-items: center; gap: 0.8rem; color: inherit; text-decoration: none; }
-      .monogram {
-        display: grid;
-        place-items: center;
-        flex: none;
-        width: 2.35rem;
-        height: 2.35rem;
-        padding-right: 0.1em;
-        border: 1px solid rgba(142, 230, 213, 0.32);
-        border-radius: 0.7rem;
-        background: linear-gradient(160deg, rgba(142, 230, 213, 0.16), rgba(142, 230, 213, 0.03));
-        box-shadow: 0 0 22px rgba(94, 201, 182, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        color: var(--accent);
-        font: 700 1rem/1 var(--mono);
-        letter-spacing: -0.08em;
-      }
-      .brand-text { display: flex; flex-direction: column; gap: 0.3rem; line-height: 1; }
-      .brand-text strong { font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em; }
-      .brand-text small { color: var(--faint); font: 0.66rem/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; }
-      nav { display: flex; align-items: center; gap: 0.25rem; padding: 0.22rem; border: 1px solid var(--line); border-radius: 0.7rem; background: rgba(18, 29, 36, 0.7); }
-      nav a {
-        padding: 0.45rem 0.8rem;
-        border-radius: 0.5rem;
-        color: var(--muted);
-        font-size: 0.78rem;
-        font-weight: 500;
-        text-decoration: none;
-        transition: color 0.15s ease, background-color 0.15s ease;
-      }
-      nav a:hover { color: var(--text); background: rgba(46, 67, 78, 0.5); }
-      nav a[aria-current="page"] { color: var(--text); background: rgba(46, 67, 78, 0.75); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
-
-      .messages-tab { position: relative; display: inline-flex; align-items: center; border-radius: .5rem; padding-right: .45rem; }
-      .messages-tab:has(a[aria-current="page"]) { background: rgba(46, 67, 78, .75); }
-      .messages-tab a { padding-right: .3rem; }
-      .messages-tab a::after { content: ""; position: absolute; inset: 0; }
-      .messages-tab a[aria-current="page"] { background: transparent; box-shadow: none; }
-      .count { display: block; border: 0; width: 8rem; height: 1.5rem; pointer-events: none; }
-      @media (max-width: 34rem) {
-        .masthead-inner { justify-content: flex-start; row-gap: .7rem; }
-        nav { max-width: 100%; }
-        nav a { padding-inline: .55rem; }
-      }
-      :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 0.45rem; }
-      main { flex: 1; min-height: 0; padding-block: clamp(0.9rem, 2.5vw, 1.4rem); }
-      .inbox { display: block; width: 100%; height: max(30rem, calc(100dvh - 8rem)); border: 0; color-scheme: normal; }
-      @media (max-width: 28rem) { .masthead-inner { row-gap: 0; } }
+      :root { color-scheme: dark; color: #e8f1f3; background: #070b0e; font: 1rem/1.5 system-ui, sans-serif; }
+      main { margin: 12vh auto; width: min(90%, 38rem); }
+      a { color: #8ee6d5; text-underline-offset: .2em; }
     </style>
   </head>
   <body>
-    <header class="masthead">
-      <div class="wrap masthead-inner">
-        <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span><span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span></a>
-        <nav aria-label="Dashboard">
-          <a href="/dashboard">Overview</a>
-          <span class="messages-tab">
-            <a href="/dashboard/messages" aria-current="page">Messages</a>
-            <iframe class="count" title="Total and unread messages" tabindex="-1" data-poll sandbox="" referrerpolicy="no-referrer"
-              src="https://status.example.invalid:8443/embed/inbox-count"></iframe>
-          </span>
-        </nav>
-      </div>
-    </header>
-    <main class="wrap">
-      <iframe class="inbox" title="Contact messages" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"
-        src="https://status.example.invalid:8443/messages"></iframe>
+    <main>
+      <h1>Messages</h1>
+      <a href="https://status.example.invalid:8443/messages">Open private inbox</a>
     </main>
-    <script>
-      (() => {
-        const interval = 30_000;
-        const frames = document.querySelectorAll("iframe[data-poll]");
-        const toggle = document.querySelector("#toggle-polling");
-        let paused = false;
-        let timer;
-        let lastFocusedFrame;
-
-        function refresh() {
-          const focused = document.activeElement;
-          for (const frame of frames) {
-            // Give an active service check one interval to finish. Focus can
-            // stay inside the frame indefinitely after a single click.
-            if (frame !== focused || frame === lastFocusedFrame) frame.src = frame.src;
-          }
-          lastFocusedFrame = focused;
-        }
-
-        function schedule(refreshNow) {
-          clearInterval(timer);
-          if (paused || document.hidden) return;
-          if (refreshNow) refresh();
-          timer = setInterval(refresh, interval);
-        }
-
-        if (toggle) {
-          toggle.hidden = false;
-          toggle.addEventListener("click", () => {
-            paused = !paused;
-            toggle.textContent = paused ? "Resume live updates" : "Pause live updates";
-            schedule(!paused);
-          });
-        }
-        document.addEventListener("visibilitychange", () => schedule(!document.hidden));
-        window.addEventListener("pagehide", () => clearInterval(timer));
-        window.addEventListener("pageshow", event => {
-          if (event.persisted) schedule(true);
-        });
-        schedule(false);
-      })();
-    </script>
   </body>
 </html>

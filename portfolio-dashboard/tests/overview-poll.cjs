@@ -23,10 +23,9 @@ async function run() {
       const url = new URL(route.request().url());
       counts[url.pathname] = (counts[url.pathname] || 0) + 1;
       if (url.origin === apex) {
-        const name = {"/dashboard": "landing.html", "/dashboard/messages": "messages.html"}[url.pathname];
-        assert.ok(name);
+        assert.equal(url.pathname, "/dashboard");
         return route.fulfill({
-          contentType: "text/html", body: pageText(name), headers: {
+          contentType: "text/html", body: pageText("landing.html"), headers: {
             "Content-Security-Policy": policy, "Cache-Control": "private, no-store",
           },
         });
@@ -34,7 +33,8 @@ async function run() {
       assert.equal(url.origin, privateOrigin);
       const fixtures = {
         "/embed/status": '<a href="/embed/status">Service check</a>',
-        "/embed/inbox-count": "3 total · 2 unread",
+        "/embed/inbox-count": readFileSync(path.join(__dirname, "../src/inbox-badge.html"), "utf8")
+          .replace("{{COUNT}}", "99+").replace("{{DETAIL}}", "103 unread / 200 total").replace("{{TONE}}", ""),
         "/messages": "<article>Synthetic message</article>",
       };
       assert.ok(fixtures[url.pathname]);
@@ -56,6 +56,9 @@ async function run() {
       await page.setViewportSize({width, height: 850});
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
       assert.ok(await badge.isVisible());
+      const pill = page.frameLocator("iframe.count").getByRole("img", { name: "103 unread / 200 total" });
+      const [frameBox, pillBox] = await Promise.all([badge.boundingBox(), pill.boundingBox()]);
+      assert.ok(frameBox.width <= 32 && pillBox.width <= frameBox.width && pillBox.height <= frameBox.height, JSON.stringify({width, frameBox, pillBox}));
     }
     await advance();
     assert.equal(counts["/embed/status"], 2);
@@ -87,12 +90,10 @@ async function run() {
     // The overlaid link covers the badge without delivering pointer events into the frame.
     const box = await badge.boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForURL(apex + "/dashboard/messages");
-    await page.frameLocator("iframe.inbox").getByRole("article").waitFor();
-    await advance();
+    await page.waitForURL(privateOrigin + "/messages");
+    await page.getByRole("article").waitFor();
     assert.equal(counts["/messages"], 1);
-    assert.equal(counts["/dashboard/messages"], 1);
-    console.log("Verified visible private badge, polling, pause/resume, focus, navigation and inbox scroll preservation.");
+    console.log("Verified visible private badge, polling, pause/resume, focus, and same-tab private inbox navigation.");
   } finally {
     await browser.close();
   }

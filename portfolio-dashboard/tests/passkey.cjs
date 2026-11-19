@@ -47,9 +47,9 @@ async function run() {
     await context.route("**/*", async route => {
       const url = new URL(route.request().url());
       assert.equal(url.origin, origin);
-      if (url.pathname === "/messages/passkey")
-        return route.fulfill({ contentType: "text/html", body: "<!doctype html>" + src("passkey-panel.html") +
-          '<form id="delete-form" hidden></form><script src="/passkey.js" defer></script>' });
+      if (url.pathname === "/messages")
+        return route.fulfill({ contentType: "text/html", body: session ? "<h1>Unlocked inbox</h1>" : '<!doctype html><section id="inbox-locked">' + src("passkey-panel.html") +
+          '</section><script src="/passkey.js" defer></script>' });
       if (url.pathname === "/passkey.js")
         return route.fulfill({ contentType: "text/javascript", body: src("passkey.js") });
       assert.equal(route.request().method(), "POST");
@@ -79,17 +79,16 @@ async function run() {
       protocol:"ctap2",transport:"internal",hasResidentKey:true,
       hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true
     }});
-    await page.goto(origin + "/messages/passkey");
+    await page.goto(origin + "/messages");
     await page.getByRole("button", {name:"Set up a passkey"}).click();
     await page.getByText("Passkey registered.", {exact:false}).waitFor();
     assert.equal(session, undefined);
     await page.getByRole("button", {name:"Sign in with passkey"}).click();
-    await page.getByText("Passkey verified.", {exact:true}).waitFor();
-    assert.equal(await page.locator("#delete-form").evaluate(form => form.hidden),false);
-    await page.reload();
-    await page.getByText("Passkey verified.", {exact:true}).waitFor();
-    assert.deepEqual(observed,["session","enroll-options","enroll-finish","login-options","login-finish","session"]);
-    console.log("Chromium virtual passkey registration, signed assertion and session reuse passed.");
+    await page.getByRole("heading", {name:"Unlocked inbox"}).waitFor();
+    assert.equal(page.url(), origin + "/messages");
+    assert.equal(context.pages().length, 1);
+    assert.deepEqual(observed,["enroll-options","enroll-finish","login-options","login-finish"]);
+    console.log("Chromium virtual passkey registration, signed assertion and same-tab inbox unlock passed.");
   } finally {
     await browser.close();
     child.stdin.end();

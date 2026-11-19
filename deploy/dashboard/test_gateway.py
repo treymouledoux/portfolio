@@ -142,8 +142,8 @@ def check_caddy(work, binary):
             assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
         for path in ("/dashboard/messages", "/dashboard/messages/"):
             status, headers, body = request(path)
-            assert status == 200 and body == (HERE / "messages.html").read_bytes()
-            assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
+            assert status == 302 and headers["Location"] == "https://status.example.invalid:8443/messages"
+            assert headers["Cache-Control"] == "private, no-store"
         assert request("/dashboard", method="HEAD")[2] == b""
         assert not public.seen
         for path, peer, method in [("/dashboard?example=1", "::1", "GET"),

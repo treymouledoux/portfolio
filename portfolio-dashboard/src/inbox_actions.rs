@@ -1,6 +1,6 @@
 //! The private broker verifies passkeys and enforces expiring sessions and hold timers.
 use super::*;
-use axum::extract::{Form, Path as RoutePath, RawQuery};
+use axum::extract::{Form, Path as RoutePath};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -91,34 +91,16 @@ fn document(content: String) -> Html<String> {
     Html(include_str!("inbox-action.html").replace("{{CONTENT}}", &content))
 }
 
-fn confirmation(action: &str, id: &str, preview: &str, count: Option<u64>) -> Html<String> {
-    // Only fixed action names, validated hexadecimal IDs and an already escaped preview enter this template.
-    let (title, warning, button) = if action == "delete" {
-        (
-            "Remove message?",
-            "This permanently removes this message from the Pi’s local inbox.".to_owned(),
-            "Permanently remove message",
-        )
-    } else {
-        (
-            "Remove all messages?",
-            format!(
-                "This permanently removes all {} local inbox messages in this snapshot. If the inbox changes, you’ll need a fresh confirmation.",
-                count.unwrap_or(0)
-            ),
-            "Permanently remove all messages",
-        )
+pub(super) async fn unlocked(headers: &HeaderMap) -> bool {
+    let (Some(user), Some(token)) = (
+        single_header(headers, "tailscale-user-login"),
+        session(headers),
+    ) else {
+        return false;
     };
-    let auth_panel = include_str!("passkey-panel.html");
-    document(format!(
-        r#"<h1>{title}</h1><p>{warning} Previously delivered email copies are unaffected.</p>
-{preview}{auth_panel}
-<form id="delete-form" method="post" action="/messages/action/{action}/{id}" data-operation="{action}" data-id="{id}" hidden>
-<input name="hold" type="hidden" value="" disabled>
-<button id="hold-delete" class="danger" type="button" disabled data-label="{button}" aria-describedby="hold-help"><span>{button}</span></button>
-<p id="hold-help" role="status" aria-live="polite">Click to arm, then hold for five seconds.</p>
-</form><noscript>Enable JavaScript to verify your passkey and confirm deletion.</noscript>"#
-    ))
+    broker(json!({"action":"session", "user":user,"session":token}))
+        .await
+        .is_ok_and(|reply| reply.ok)
 }
 
 pub(super) async fn passkey_page() -> Html<String> {
@@ -128,55 +110,22 @@ pub(super) async fn passkey_page() -> Html<String> {
     ))
 }
 
-pub(super) async fn preview_one(
-    RoutePath((action, id)): RoutePath<(String, String)>,
-    RawQuery(q): RawQuery,
-) -> Response {
-    if action != "delete" || !valid_hex(&id, 64) {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let Some(end) = q
-        .as_deref()
-        .and_then(|q| q.strip_prefix("end="))
-        .and_then(|n| n.parse::<u64>().ok())
-    else {
-        return StatusCode::BAD_REQUEST.into_response();
+pub(super) async fn preview_all(headers: HeaderMap) -> Response {
+    let (Some(user), Some(token)) = (
+        single_header(&headers, "tailscale-user-login"),
+        session(&headers),
+    ) else {
+        return StatusCode::UNAUTHORIZED.into_response();
     };
-    let result = tokio::task::spawn_blocking(move || inbox::read_snapshot(Some(end))).await;
-    match result {
-        Ok(Ok(page)) => match page.entries.first() {
-            Some(entry) if entry.id == id && entry.end == end => {
-                let mut html = String::new();
-                inbox::render_entry(entry, &mut html, false);
-                confirmation("delete", &id, &html, None).into_response()
-            }
-            _ => (
-                StatusCode::CONFLICT,
-                "This message changed. Reload the inbox.",
-            )
-                .into_response(),
-        },
-        _ => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Message unavailable. Reload the inbox.",
-        )
-            .into_response(),
-    }
-}
-
-pub(super) async fn preview_all() -> Response {
     if let Ok(Reply {
         ok: true,
         snapshot: Some(id),
         count: Some(count),
         ..
-    }) = broker(json!({"action":"snapshot"})).await
+    }) = broker(json!({"action":"snapshot","user":user,"session":token})).await
         && valid_hex(&id, 64)
     {
-        if count == 0 {
-            return document("<h1>Inbox is empty</h1>".into()).into_response();
-        }
-        return confirmation("delete-all", &id, "", Some(count)).into_response();
+        return Json(json!({"id":id,"count":count})).into_response();
     }
     (
         StatusCode::SERVICE_UNAVAILABLE,
@@ -236,7 +185,7 @@ pub(super) async fn auth(
     };
     let mut cmd = json!({"action":step,"user":user});
     match step.as_str() {
-        "enroll-options" | "login-options" | "session" if body == json!({}) => {}
+        "enroll-options" | "login-options" | "session" | "lock" if body == json!({}) => {}
         "enroll-finish" | "login-finish" => {
             let Ok(Finish { flow, credential }) = serde_json::from_value(body) else {
                 return StatusCode::BAD_REQUEST.into_response();
@@ -268,7 +217,7 @@ pub(super) async fn auth(
         }
         _ => return StatusCode::BAD_REQUEST.into_response(),
     }
-    if matches!(step.as_str(), "session" | "arm" | "cancel") {
+    if matches!(step.as_str(), "session" | "arm" | "cancel" | "lock") {
         let Some(token) = session(&headers) else {
             return auth_error("denied");
         };
@@ -313,6 +262,16 @@ fn auth_reply(step: &str, reply: Reply) -> Response {
             Some(hold) if valid_hex(&hold, 64) => Json(json!({"hold":hold})).into_response(),
             _ => auth_error("unavailable"),
         },
+        "lock" => {
+            let mut response = StatusCode::NO_CONTENT.into_response();
+            response.headers_mut().insert(
+                header::SET_COOKIE,
+                HeaderValue::from_static(
+                    "__Host-portfolio-inbox=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
+                ),
+            );
+            response
+        }
         "cancel" | "session" => Json(json!({"ok":true})).into_response(),
         _ => auth_error("unavailable"),
     }
@@ -341,10 +300,7 @@ pub(super) async fn commit(
         "hold": approval.hold,
     });
     match broker(command).await {
-        Ok(reply) if reply.ok => document(
-            "<h1>Removal complete</h1><p>Refresh the inbox to see the updated list.</p>".into(),
-        )
-        .into_response(),
+        Ok(reply) if reply.ok => StatusCode::NO_CONTENT.into_response(),
         Ok(reply) if reply.error.as_deref() == Some("stale") => (
             StatusCode::CONFLICT,
             "The inbox changed. Reload and review before confirming again.",
