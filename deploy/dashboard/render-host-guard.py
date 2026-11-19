@@ -95,6 +95,21 @@ def render(stage, inventory):
         raise ValueError("jetkvm_ping requires a boolean and an IPv4 JetKVM target when enabled")
     if ping:
         kvm_rule += f'\n        meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr {kvm} icmp type echo-request accept'
+    # Muse is echoed from the same service, so it needs its own reviewed target.
+    muse_ping = inventory.get("muse_ping", False)
+    if not isinstance(muse_ping, bool):
+        raise ValueError("muse_ping requires a boolean")
+    if muse_ping:
+        raw = inventory.get("muse_ip")
+        if not isinstance(raw, str) or "%" in raw:
+            raise ValueError("muse_ping requires muse_ip")
+        try:
+            muse = ipaddress.IPv4Address(raw)
+        except ValueError as error:
+            raise ValueError("muse_ip must be one tailnet IPv4 address") from error
+        if not any(muse in t for t in TAILNET):
+            raise ValueError("muse_ip must be its numeric Tailscale node address")
+        kvm_rule += f'\n        meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr {muse} icmp type echo-request accept'
     smtp = numeric_port(inventory, "smtp_port")
     if smtp not in (465, 587):
         raise ValueError("smtp_port must match the verified TLS submission port")

@@ -66,6 +66,20 @@ class HostGuard(unittest.TestCase):
             with self.assertRaises(ValueError):
                 guard.render("pilot", self.inventory | bad)
 
+    def test_muse_echo_needs_its_own_reviewed_target(self):
+        self.assertNotIn("100.100.0.15", guard.render("pilot", self.inventory))
+        rules = guard.render("pilot", self.inventory | {"muse_ip": "100.100.0.15", "muse_ping": True})
+        self.assertIn('meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr 100.100.0.15 icmp type echo-request accept', rules)
+        self.assertIn('meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr 100.100.0.14 tcp dport 443 accept', rules)
+        for bad in ({"muse_ping": True},
+                    {"muse_ping": True, "muse_ip": "100.100.0.15/32"},
+                    {"muse_ping": True, "muse_ip": "10.0.0.5"},
+                    {"muse_ping": True, "muse_ip": "fd7a:115c:a1e0::9"},
+                    {"muse_ping": True, "muse_ip": "100.100.0.15%tailscale0"},
+                    {"muse_ping": "yes", "muse_ip": "100.100.0.15"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                guard.render("pilot", self.inventory | bad)
+
     def test_ipv6_kvm_stays_bound_to_its_exact_tailnet_address(self):
         rules = guard.render("pilot", {**self.inventory, "jetkvm_ip": "fd7a:115c:a1e0::17"})
         self.assertIn('oifname "tailscale0" ip6 daddr fd7a:115c:a1e0::17 tcp dport 443 accept', rules)
