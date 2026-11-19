@@ -6,6 +6,9 @@ After=portfolio-dashboard-guard.service
 [Socket]
 ListenStream=/run/portfolio-dashboard-peer/dashboard.sock
 Service=portfolio-dashboard.service
+# systemd creates the parent directory as root:root, so set its group here;
+# only root and the caddy group may enter it.
+ExecStartPre=+/usr/bin/install -d -o root -g caddy -m 0750 /run/portfolio-dashboard-peer
 FileDescriptorName=peer
 DirectoryMode=0750
 SocketUser=root

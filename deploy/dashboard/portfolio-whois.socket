@@ -3,6 +3,9 @@ Description=Private Tailscale identity lookup socket
 
 [Socket]
 ListenStream=/run/portfolio-whois/whois.sock
+# systemd creates the parent directory as root:root, so set its group here;
+# only root and the dashboard account may enter it.
+ExecStartPre=+/usr/bin/install -d -o root -g portfolio-dashboard -m 0750 /run/portfolio-whois
 DirectoryMode=0750
 SocketUser=root
 SocketGroup=portfolio-dashboard
