@@ -58,7 +58,7 @@ The private dashboard displays the native SSH command for the configured Pi. Ope
 
 ## Monitor the Pi, JetKVM and Muse
 
-The Pi reports host-wide CPU utilization over a sampling interval, RAM usage and uptime from Linux procfs. The portfolio probe times an HTTPS health request and JetKVM times a TCP connection to its configured port. The IPv4 JetKVM echo test uses an unprivileged datagram ping socket. Enable `jetkvm_ping: true` in the private firewall inventory for that test and render the existing firewall stage. Verify the service GID falls inside `net.ipv4.ping_group_range`. The generated exception applies only to the dashboard UID sending an echo request through `tailscale0` to the existing JetKVM IPv4 address. Keep raw socket capabilities disabled.
+The Pi reports host-wide CPU utilization over a sampling interval, RAM usage and uptime from Linux procfs, and the SoC temperature from the first thermal zone. The portfolio probe times an HTTPS health request and JetKVM times a TCP connection to its configured port. The IPv4 JetKVM echo test uses an unprivileged datagram ping socket. Enable `jetkvm_ping: true` in the private firewall inventory for that test and render the existing firewall stage. Verify the service GID falls inside `net.ipv4.ping_group_range`. The generated exception applies only to the dashboard UID sending an echo request through `tailscale0` to the existing JetKVM IPv4 address. Keep raw socket capabilities disabled.
 
 Set the optional `muse_ip` and `muse_ping: true` in the same private inventory to allow the dashboard UID an echo request to that one Muse address, then render the existing firewall stage again.
 

@@ -108,12 +108,12 @@ class ActionsTest(unittest.TestCase):
     def enroll(self):
         with self.assertRaises(actions.Rejected):
             self.call("enroll-options")
-        self.assertEqual(self.call("enrollment"), {"ok": True, "open": False})
+        self.assertEqual(self.call("enrollment"), {"ok": True, "open": False, "minutes": 15})
         open_request = {"action": "open-enrollment", "user": self.user}
         with self.assertRaises(actions.Rejected):
             self.broker.handle(open_request)
         self.broker.handle(open_request, issuer=True)
-        self.assertEqual(self.call("enrollment"), {"ok": True, "open": True})
+        self.assertEqual(self.call("enrollment"), {"ok": True, "open": True, "minutes": 15})
         result = self.call("enroll-finish", **self.ceremony("enroll"))
         self.assertEqual(result, {"ok": True, "registered": True})
         with self.assertRaises(actions.Rejected):
@@ -216,6 +216,44 @@ class ActionsTest(unittest.TestCase):
         self.now += 300
         with self.assertRaises(actions.Rejected):
             self.call("session", session=self.session)
+
+    def test_session_length_is_admin_only_and_survives_a_restart(self):
+        policy = self.directory / "session-minutes"
+        self.broker = actions.Broker(self.directory, self.database, self.origin, {self.user},
+                                     lambda: self.now, policy=policy)
+        self.addCleanup(self.broker.keys.close)
+        session = self.login()
+        for minutes in (0, 5.5, 35, "10", True, None):
+            with self.subTest(minutes=minutes), self.assertRaises(actions.Rejected):
+                self.call("session-length", session=session, minutes=minutes)
+        self.assertFalse(policy.exists())
+        result = self.call("session-length", session=session, minutes=30)
+        self.assertEqual((result["minutes"], result["expires_in"]), (30, 1800))
+        self.assertEqual(result["session"], session)
+        self.assertEqual(policy.read_text(), "30\n")
+        self.assertEqual(stat.S_IMODE(policy.stat().st_mode) & 0o077, 0)
+        # The session in use moves to the new length as well.
+        self.assertEqual(self.call("session", session=session)["expires_in"], 1800)
+        self.broker.admins = frozenset()
+        with self.assertRaises(actions.Rejected):
+            self.call("session-length", session=session, minutes=5)
+        self.assertEqual(self.call("session", session=session)["minutes"], 30)
+        # A restarted broker reads the stored length back and issues it.
+        self.broker = actions.Broker(self.directory, self.database, self.origin, {self.user},
+                                     lambda: self.now, policy=policy)
+        self.addCleanup(self.broker.keys.close)
+        self.assertEqual(self.call("enrollment")["minutes"], 30)
+        self.assertEqual(self.call("login-finish", **self.ceremony("login"))["expires_in"], 1800)
+
+    def test_session_length_defaults_when_the_stored_value_is_not_offered(self):
+        policy = self.directory / "session-minutes"
+        for content in (b"7\n", b"", b"abc", b"5" * 40, b"-5", b"\xff"):
+            policy.write_bytes(content)
+            self.assertEqual(actions.load_minutes(policy), 15, content)
+        policy.write_bytes(b"25\n")
+        self.assertEqual(actions.load_minutes(policy), 25)
+        self.assertEqual(actions.load_minutes(self.directory / "missing"), 15)
+        self.assertEqual(actions.load_minutes(None), 15)
 
     def test_reader_and_lock_cannot_erase(self):
         self.broker.admins = frozenset()

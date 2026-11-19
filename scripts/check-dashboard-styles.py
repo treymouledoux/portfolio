@@ -21,6 +21,14 @@ def check_inline(page, policy, tag, directive):
         raise SystemExit(f"The {directive} hash in {policy} does not match {page}")
 
 
+SCRIPTS = {
+    "portfolio-dashboard/src/denied.html": "portfolio-dashboard/src/main.rs",
+}
+
 for page, policy in PAGES.items():
     check_inline(page, policy, "style", "style-src")
-    print(f"Verified {page}")
+    print(f"Verified the inline style in {page}")
+
+for page, policy in SCRIPTS.items():
+    check_inline(page, policy, "script", "script-src")
+    print(f"Verified the inline script in {page}")

@@ -79,6 +79,7 @@ function showSnapshot(snapshot) {
   const h = snapshot.host || {};
   memoryTotal = Number.isFinite(h.memory_total_mib) && h.memory_total_mib > 0 ? h.memory_total_mib : null;
   document.getElementById("cpu").textContent = Number.isFinite(h.cpu_percent) ? `${h.cpu_percent.toFixed(1)}%` : "—";
+  document.getElementById("temp").textContent = Number.isFinite(h.cpu_temp_c) ? `${h.cpu_temp_c.toFixed(1)} °C` : "—";
   document.getElementById("ram").textContent = Number.isFinite(h.memory_used_mib) ? `${h.memory_used_mib} / ${h.memory_total_mib} MiB` : "—";
   const t = h.uptime_seconds;
   document.getElementById("uptime").textContent = Number.isFinite(t) ? `${Math.floor(t / 86400)}d ${Math.floor(t / 3600) % 24}h ${Math.floor(t / 60) % 60}m` : "—";
@@ -243,6 +244,13 @@ function syncMenu() {
 
 function formatValue(unit, value) {
   return unit === "%" ? `${value.toFixed(1)}%` : `${Math.round(value)} ${unit}`;
+}
+
+// Memory is a share of what the Pi has, so a current reading is a fraction.
+function formatMemory(mib) {
+  return Number.isFinite(memoryTotal)
+    ? `${Math.round(mib)} / ${Math.round(memoryTotal)} MiB`
+    : formatValue("MiB", mib);
 }
 
 function svgNode(name, attributes) {
@@ -418,10 +426,10 @@ function drawChart() {
       chart.summary.textContent =
         `${cores} cores · now ${now.join(" · ")} · avg ${formatValue(unit, average)} · peak ${formatValue(unit, high)}`;
     } else {
+      const now = latestValues[0] ?? average;
       chart.summary.textContent =
-        `Now ${formatValue(unit, latestValues[0] ?? average)} · avg ${formatValue(unit, average)} · low ${formatValue(unit, low)} · high ${formatValue(unit, high)}`;
+        `Now ${capped ? formatMemory(now) : formatValue(unit, now)} · avg ${formatValue(unit, average)} · low ${formatValue(unit, low)} · high ${formatValue(unit, high)}`;
     }
-    if (capped) chart.summary.textContent += ` · ${formatValue(unit, memoryTotal)} max`;
   }
   const times = lines.flatMap(line => data[line.key].map(entry => entry.at));
   const minutes = (Math.max(...times) - Math.min(...times)) / 60000;
@@ -432,7 +440,7 @@ function drawChart() {
 
 function showMax(show) {
   chartMax.hidden = !show;
-  chartMax.textContent = show ? `${Math.round(memoryTotal)} MiB installed · top line is the maximum` : "";
+  chartMax.textContent = show ? `${Math.round(memoryTotal)} MiB installed` : "";
 }
 
 function drawPills(lines, data) {
@@ -447,7 +455,9 @@ function drawPills(lines, data) {
     name.className = "chart-pill-name";
     name.textContent = line.label;
     const current = document.createElement("strong");
-    current.textContent = values.length ? formatValue(unit, values.at(-1)) : "—";
+    current.textContent = values.length
+      ? (line.key === "ram" ? formatMemory(values.at(-1)) : formatValue(unit, values.at(-1)))
+      : "—";
     head.append(name, current);
     const detail = document.createElement("p");
     detail.className = "chart-pill-detail";

@@ -96,6 +96,7 @@
               <div class="card-heading"><h3>Raspberry Pi</h3><span class="protocol">Host</span></div>
               <dl class="host-stats">
                 <div><dt>CPU</dt><dd id="cpu">—</dd></div>
+                <div><dt>CPU temp</dt><dd id="temp">—</dd></div>
                 <div><dt>RAM used</dt><dd id="ram">—</dd></div>
                 <div><dt>Uptime</dt><dd id="uptime">—</dd></div>
               </dl>
@@ -218,13 +219,29 @@
         <section aria-labelledby="passkeys">
           <h2 id="passkeys">Passkeys</h2>
           <div class="settings-card">
-            <p>One passkey guards message removal, the web terminal and every host operation here; reading and exporting messages needs none. Its ceremonies stay on the Pi's broker: enrollment needs an open window, and a verified session lasts fifteen minutes.</p>
+            <p>One passkey guards message removal, the web terminal and every host operation here; reading and exporting messages needs none. Its ceremonies stay on the Pi's broker: enrollment needs an open window, and an admin session lasts as long as the length below.</p>
             {{PASSKEY_PANEL}}
+            <div class="settings-row">
+              <div><strong>Session length</strong><p>How long one unlock lasts. Changing it also moves the session you are using now.</p></div>
+              <label class="settings-field" for="session-minutes">
+                <span>Minutes</span>
+                <select id="session-minutes" disabled>
+                  <option value="5">5 minutes</option>
+                  <option value="10">10 minutes</option>
+                  <option value="15">15 minutes</option>
+                  <option value="20">20 minutes</option>
+                  <option value="25">25 minutes</option>
+                  <option value="30">30 minutes</option>
+                </select>
+              </label>
+            </div>
+            <p class="settings-status" id="session-length-status" role="status" aria-live="polite"></p>
           </div>
         </section>
         <section aria-labelledby="operations">
           <h2 id="operations">Host operations</h2>
           <div class="settings-card">
+            <p class="operations-lock" id="operations-lock" hidden>Locked. Unlock with your passkey above to restart or reboot the Pi.</p>
             <div class="settings-row">
               <div><strong>Restart Tailscale</strong><p>Reconnects the WireGuard tunnels without restarting anything else.</p></div>
               <button type="button" data-restart="tailscaled">Restart</button>

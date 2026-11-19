@@ -36,7 +36,7 @@ const VIEW_MESSAGES: &str = "messages";
 const VIEW_SETTINGS: &str = "settings";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-HwnIvpYDfKYpV3JrCbFJmWJo/BbxVsaumoVtD+7KSqQ='; script-src 'sha256-X2zCJ12Zv0bcrzazj0t2Mei5Qr2UcEtoOQPk0+/F4FM='; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 /// One document carries both views so switching them never reloads the page.
 /// The server fills the requested view, so a deep link, a reload or a browser
@@ -312,7 +312,7 @@ async fn protect(
     let denied = !allowed || foreign_request || wrong_origin || wrong_destination || unconfigured;
     // Reading and exporting need an approved reader, not a passkey; the archive
     // opens by default. Only actions that change something ask for a verified
-    // session, which is what the page's lock control grants for fifteen minutes.
+    // session, which is what the page grants for the length chosen in Settings.
     let inbox_write = path == "/messages/delete-all"
         || path.starts_with("/messages/action/")
         || path.starts_with("/messages/read/")

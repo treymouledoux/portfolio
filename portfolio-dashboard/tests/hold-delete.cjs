@@ -184,7 +184,7 @@ async function run() {
     assert.equal(page.url(), origin + "/messages");
     assert.equal(context.pages().length, 1);
     // The header badge is the one lock action now.
-    await page.getByRole("button", {name:/Owner session/}).click();
+    await page.getByRole("button", {name:/Admin session/}).click();
     await page.getByRole("heading", {name:"Locked"}).waitFor();
     // An expired session drops the page back to its locked controls.
     const expired = await fixture(browser);

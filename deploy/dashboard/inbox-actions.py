@@ -36,6 +36,10 @@ SOCKET = "/run/portfolio-inbox-actions/actions.sock"
 LINE_LIMIT = 65536
 ACTIONS = {"delete", "delete-all"}
 WIRE_LIMIT = 32 * 1024
+# The lengths Settings may choose, in minutes, and the length used until one is.
+LIFETIMES = (5, 10, 15, 20, 25, 30)
+DEFAULT_MINUTES = 15
+POLICY = Path("/var/lib/portfolio-inbox-auth/session-minutes")
 
 
 class Stale(Exception):
@@ -137,8 +141,40 @@ def private_origin(origin):
     return port is None or 0 < int(port) <= 65535
 
 
+def load_minutes(path):
+    """The stored session length, or the default when the file is missing or
+    does not name one of the offered lengths."""
+    if path is None:
+        return DEFAULT_MINUTES
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return DEFAULT_MINUTES
+    if len(raw) > 8:
+        return DEFAULT_MINUTES
+    try:
+        minutes = int(raw.decode("ascii").strip())
+    except (UnicodeDecodeError, ValueError):
+        return DEFAULT_MINUTES
+    return minutes if minutes in LIFETIMES else DEFAULT_MINUTES
+
+
+def store_minutes(path, minutes):
+    """Replace the policy atomically: a torn write would silently reset the
+    owner's choice on the next restart."""
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".session-")
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            handle.write(f"{minutes}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 class Broker:
-    def __init__(self, directory, key_database, origin, admins, clock=time.monotonic, *, readers=None):
+    def __init__(self, directory, key_database, origin, admins, clock=time.monotonic, *, readers=None, policy=None):
         if not private_origin(origin):
             raise ValueError("expected one exact private dashboard HTTPS origin")
         self.directory = directory
@@ -162,6 +198,11 @@ class Broker:
         self.flows = {}
         self.sessions = {}
         self.holds = {}
+        # The chosen length outlives the process, so a restart does not quietly
+        # undo a setting the owner picked. None keeps it in memory for tests.
+        self.policy = policy
+        self.minutes = load_minutes(policy)
+        self.lifetime = self.minutes * 60
 
     def prune(self, now):
         for table in (self.windows, self.flows, self.sessions, self.holds):
@@ -250,8 +291,9 @@ class Broker:
         if len(self.sessions) >= 128:
             raise Rejected()
         session = secrets.token_hex(32)
-        self.sessions[session] = (self.clock() + 900, user)
-        return {"ok": True, "session": session}
+        self.sessions[session] = (self.clock() + self.lifetime, user)
+        # The caller needs the lifetime it was granted for its cookie.
+        return {"ok": True, "session": session, "expires_in": self.lifetime}
 
     def handle(self, request, issuer=False):
         if not isinstance(request, dict):
@@ -271,8 +313,9 @@ class Broker:
             return {"ok": True}
         if action == "enrollment" and fields == basic:
             # Read-only gate for the unlock screen: setup is only offered
-            # while a root operator has an enrollment window open.
-            return {"ok": True, "open": user in self.windows}
+            # while a root operator has an enrollment window open. The current
+            # session length rides along so Settings can show it while locked.
+            return {"ok": True, "open": user in self.windows, "minutes": self.minutes}
         if action in ("enroll-options", "login-options") and fields == basic:
             return self.begin(user, action == "enroll-options")
         if action in ("enroll-finish", "login-finish") and fields == basic | {"flow", "credential"}:
@@ -285,7 +328,11 @@ class Broker:
         if action == "session" and fields == basic:
             # The dashboard's header countdown is the only place that knows how
             # long the session has left, so report the remaining whole seconds.
-            return {"ok": True, "expires_in": max(0, int(self.sessions[session][0] - now))}
+            return {
+                "ok": True,
+                "expires_in": max(0, int(self.sessions[session][0] - now)),
+                "minutes": self.minutes,
+            }
         if action == "lock" and fields == basic:
             del self.sessions[session]
             for key, value in list(self.holds.items()):
@@ -294,6 +341,28 @@ class Broker:
             return {"ok": True}
         if user not in self.admins:
             raise Rejected()
+        if action == "session-length" and fields == basic | {"minutes"}:
+            minutes = request.get("minutes")
+            if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes not in LIFETIMES:
+                raise Rejected()
+            # Persist first: a length that a restart would forget is worse than
+            # one that was refused.
+            if self.policy is not None:
+                try:
+                    store_minutes(self.policy, minutes)
+                except OSError as error:
+                    raise Rejected("unavailable") from error
+            self.minutes = minutes
+            self.lifetime = minutes * 60
+            # The choice governs the session in use too, so its countdown and
+            # its cookie both move to the new length.
+            self.sessions[session] = (now + self.lifetime, user)
+            return {
+                "ok": True,
+                "minutes": minutes,
+                "expires_in": self.lifetime,
+                "session": session,
+            }
         if action == "snapshot" and fields == basic:
             with locked_store(self.directory, exclusive=False) as data:
                 digest, count, _ = scan(data)
@@ -363,6 +432,7 @@ def serve():
         os.environ["DASHBOARD_ADMIN_ORIGIN"],
         [v.strip() for v in os.environ["DASHBOARD_INBOX_ADMINS"].split(",") if v.strip()],
         readers=[v.strip() for v in os.environ["DASHBOARD_INBOX_READERS"].split(",") if v.strip()],
+        policy=POLICY,
     )
     # A hard power loss can leave a pre-rename temporary file. Only the
     # broker has directory write permission; clear its interrupted rewrites.

@@ -164,6 +164,8 @@ pub(super) struct Host {
     pub(super) cores: Option<Vec<f32>>,
     pub(super) memory_used_mib: Option<u64>,
     pub(super) memory_total_mib: Option<u64>,
+    // The SoC sensor, in degrees Celsius, as the thermal zone reports it.
+    pub(super) cpu_temp_c: Option<f32>,
     pub(super) uptime_seconds: Option<u64>,
 }
 
@@ -227,6 +229,15 @@ fn memory(info: &str) -> Option<(u64, u64)> {
     ))
 }
 
+/// Thermal zones report millidegrees; anything outside a plausible range is a
+/// different sensor, not the CPU, so the card shows nothing rather than a
+/// reading it cannot stand behind.
+fn temperature(text: &str) -> Option<f32> {
+    let millidegrees: f32 = text.trim().parse().ok()?;
+    let celsius = (millidegrees / 100.0).round() / 10.0;
+    (celsius > 0.0 && celsius < 150.0).then_some(celsius)
+}
+
 /// One tick's CPU counters, kept so the next tick can difference them.
 struct Counters {
     total: Cpu,
@@ -237,6 +248,9 @@ fn host_sample(previous: Option<Counters>) -> (Option<Counters>, Host) {
     let proc = |path| std::fs::read_to_string(path).ok();
     let cpu = proc("/proc/stat").as_deref().and_then(Cpu::parse);
     let mem = proc("/proc/meminfo").as_deref().and_then(memory);
+    let temp = proc("/sys/class/thermal/thermal_zone0/temp")
+        .as_deref()
+        .and_then(temperature);
     let uptime = proc("/proc/uptime").and_then(|text| {
         text.split_whitespace()
             .next()?
@@ -264,6 +278,7 @@ fn host_sample(previous: Option<Counters>) -> (Option<Counters>, Host) {
             cores: cores.filter(|cores| !cores.is_empty()),
             memory_used_mib: mem.map(|v| v.0),
             memory_total_mib: mem.map(|v| v.1),
+            cpu_temp_c: temp,
             uptime_seconds: uptime,
         },
     )
@@ -538,6 +553,7 @@ mod tests {
                 cores: Some(vec![1.0, 2.0, 3.0, 4.0]),
                 memory_used_mib: Some(250),
                 memory_total_mib: Some(415),
+                cpu_temp_c: None,
                 uptime_seconds: None,
             });
         });
@@ -586,6 +602,10 @@ mod tests {
             Some((3, 4))
         );
         assert_eq!(memory("MemTotal: 512 kB\nMemAvailable: 800 kB"), None);
+        assert_eq!(temperature("48600\n"), Some(48.6));
+        assert_eq!(temperature(" 0\n"), None);
+        assert_eq!(temperature("250000"), None);
+        assert_eq!(temperature("not a number"), None);
     }
     #[test]
     fn muse_status_expires_and_rejects_future_timestamps() {

@@ -2,7 +2,7 @@
 
 (() => {
   // The header badge is the one place that reports whether this browser holds
-  // the fifteen-minute owner session, how long is left, and how to end it.
+  // the admin session, how long is left, and how to end it.
   const badge = document.getElementById("session-badge");
   if (!badge) return;
   const icon = badge.querySelector(".session-icon");
@@ -30,12 +30,12 @@
     badge.dataset.state = state;
     if (state === "unlocked") {
       icon.textContent = "🔓";
-      label.textContent = "Owner session";
+      label.textContent = "Admin session";
       timer.textContent = expiresAt ? clock(remaining()) : "";
       badge.disabled = false;
       badge.title = "Lock this session now";
       badge.setAttribute("aria-label",
-        `Owner session${expiresAt ? `, ${clock(remaining())} left` : ""}. Activate to lock.`);
+        `Admin session${expiresAt ? `, ${clock(remaining())} left` : ""}. Activate to lock.`);
       return;
     }
     icon.textContent = state === "checking" ? "…" : "🔒";
@@ -55,8 +55,13 @@
     // than expiring a session the server would still accept.
     expiresAt = next === "unlocked" && seconds > 0 ? Date.now() + seconds * 1000 : 0;
     paint();
-    // The first answer settles the badge; it is not a session change.
-    if (previous === state || previous === "checking") return;
+    // The first answer settles the badge; it is not a session change, but the
+    // other panels still need it to know which controls to offer.
+    if (previous === "checking") {
+      window.dispatchEvent(new Event("session:settled"));
+      return;
+    }
+    if (previous === state) return;
     window.dispatchEvent(new Event(state === "unlocked" ? "session:unlocked" : "session:locked"));
   }
 
@@ -106,7 +111,7 @@
     if (!document.hidden) refresh();
   });
 
-  window.SessionBadge = { refresh };
+  window.SessionBadge = { refresh, current: () => state };
   paint();
   refresh();
 })();

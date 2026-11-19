@@ -79,35 +79,90 @@
     telemetryStatus.textContent = `Checking every ${body.interval_secs} s, keeping ${body.retention} checks.`;
   });
 
+  // ---- Session length ----------------------------------------------------
+  const sessionMinutes = document.getElementById("session-minutes");
+  const sessionLengthStatus = document.getElementById("session-length-status");
+
+  // The broker owns the stored length; its enrollment gate reports it without a
+  // session, so the greyed-out control can still show the real value.
+  async function loadSessionLength() {
+    const response = await post("/messages/auth/enrollment", {}).catch(() => null);
+    if (!response?.ok) return;
+    const body = await response.json().catch(() => ({}));
+    if (Number.isFinite(body.minutes) && sessionMinutes) sessionMinutes.value = String(body.minutes);
+  }
+
+  function setSessionLength() {
+    if (!sessionMinutes) return;
+    sessionMinutes.disabled = !unlocked;
+    if (sessionLengthStatus && !unlocked) sessionLengthStatus.textContent = "";
+  }
+
+  sessionMinutes?.addEventListener("change", async () => {
+    sessionMinutes.disabled = true;
+    if (sessionLengthStatus) sessionLengthStatus.textContent = "Saving…";
+    const response = await post("/messages/auth/session-length", {
+      minutes: Number(sessionMinutes.value),
+    }).catch(() => null);
+    if (!response?.ok) {
+      if (sessionLengthStatus) sessionLengthStatus.textContent =
+        "That length was not accepted. Check the session and try again.";
+      setSessionLength();
+      return;
+    }
+    const body = await response.json().catch(() => ({}));
+    if (Number.isFinite(body.minutes)) sessionMinutes.value = String(body.minutes);
+    if (sessionLengthStatus) sessionLengthStatus.textContent =
+      `Unlocks now last ${sessionMinutes.value} minutes.`;
+    setSessionLength();
+    // The session in use moved to the new length, so its countdown must too.
+    window.SessionBadge?.refresh?.();
+  });
+
   // ---- Host operations ---------------------------------------------------
   const operationStatus = document.getElementById("operation-status");
+  const operationsLock = document.getElementById("operations-lock");
+  const restartControls = [...document.querySelectorAll("[data-restart]")];
   const rebootForm = document.getElementById("reboot-form");
   const rebootConfirm = document.getElementById("reboot-confirm");
+  const rebootSubmit = rebootForm?.querySelector("button[type=submit]");
 
   function setOperationStatus(text) {
     if (operationStatus) operationStatus.textContent = text;
   }
 
-  for (const control of document.querySelectorAll("[data-restart]")) {
+  // These change the machine, so they stay greyed out until the header badge
+  // reports an admin session instead of asking for a passkey on click.
+  function setOperations() {
+    for (const control of restartControls) control.disabled = !unlocked;
+    if (rebootSubmit) rebootSubmit.disabled = !unlocked;
+    if (rebootConfirm) rebootConfirm.disabled = !unlocked;
+    // The note waits for a settled answer so an unlocked page never flashes it.
+    if (operationsLock) {
+      operationsLock.hidden = (window.SessionBadge?.current?.() ?? "checking") !== "locked";
+    }
+  }
+
+  async function sessionLost() {
+    setOperationStatus("That needs an active admin session. Unlock with your passkey above.");
+    await window.SessionBadge?.refresh?.();
+    syncSession();
+  }
+
+  for (const control of restartControls) {
     control.addEventListener("click", async () => {
       const target = control.dataset.restart;
       control.disabled = true;
       setOperationStatus(`Restarting ${target}…`);
-      let response = await post(`/api/admin/restart/${target}`, {}).catch(() => null);
+      const response = await post(`/api/admin/restart/${target}`, {}).catch(() => null);
       if (response?.status === 401 || response?.status === 403) {
-        try {
-          await unlock();
-        } catch (error) {
-          setOperationStatus(error.message);
-          control.disabled = false;
-          return;
-        }
-        response = await post(`/api/admin/restart/${target}`, {}).catch(() => null);
+        await sessionLost();
+        return;
       }
       setOperationStatus(response?.ok
         ? `${target} restart requested.`
         : "The host agent did not answer.");
-      control.disabled = false;
+      setOperations();
     });
   }
 
@@ -118,15 +173,10 @@
       return;
     }
     setOperationStatus("Requesting reboot…");
-    let response = await post("/api/admin/reboot", {confirm: "REBOOT"}).catch(() => null);
+    const response = await post("/api/admin/reboot", {confirm: "REBOOT"}).catch(() => null);
     if (response?.status === 401 || response?.status === 403) {
-      try {
-        await unlock();
-      } catch (error) {
-        setOperationStatus(error.message);
-        return;
-      }
-      response = await post("/api/admin/reboot", {confirm: "REBOOT"}).catch(() => null);
+      await sessionLost();
+      return;
     }
     setOperationStatus(response?.ok
       ? "Reboot requested. Everything reconnects in about a minute."
@@ -157,15 +207,35 @@
     screen.scrollTop = screen.scrollHeight;
   }
 
-  function showSession(open) {
-    screen.hidden = !open;
-    terminalForm.hidden = !open;
-    closeButton.hidden = !open;
-    unlockButton.hidden = open;
-    // An open shell is its own state, not just "not locked".
-    if (terminal) terminal.dataset.state = open ? "open" : "locked";
-    badge.textContent = open ? "Shell open" : "Locked";
-    badge.dataset.state = open ? "open" : "locked";
+  // An open shell is its own state, and so is a closed one the live session
+  // still covers: that one opens in a click instead of asking for the passkey.
+  let shell = false;
+  let unlocked = false;
+
+  function renderTerminal() {
+    screen.hidden = !shell;
+    terminalForm.hidden = !shell;
+    closeButton.hidden = !shell;
+    unlockButton.hidden = shell;
+    unlockButton.textContent = unlocked ? "Open shell" : "Unlock with passkey";
+    const state = shell ? "open" : unlocked ? "ready" : "locked";
+    if (terminal) terminal.dataset.state = state;
+    if (badge) {
+      badge.textContent = shell ? "Shell open" : unlocked ? "Unlocked" : "Locked";
+      badge.dataset.state = state;
+    }
+  }
+
+  // Every owner control on this page follows the one session the badge holds.
+  function applySession() {
+    renderTerminal();
+    setOperations();
+    setSessionLength();
+  }
+
+  function syncSession() {
+    unlocked = window.SessionBadge?.current?.() === "unlocked";
+    applySession();
   }
 
   async function pump() {
@@ -183,7 +253,9 @@
       }
       offset = body.offset;
       if (body.ended) {
-        endSession("Shell exited. Unlock again for a new session.");
+        endSession(unlocked
+          ? "Shell exited. Open a new one when you need it."
+          : "Shell exited. Unlock again for a new session.");
         return;
       }
     }
@@ -213,7 +285,8 @@
     const body = await response.json();
     session = body.id;
     offset = 0;
-    showSession(true);
+    shell = true;
+    renderTerminal();
     say("Connected. Line input; the agent runs a real shell as your account.");
     terminalLine.focus();
     pump();
@@ -221,7 +294,8 @@
 
   function endSession(text) {
     session = null;
-    showSession(false);
+    shell = false;
+    renderTerminal();
     say(text);
   }
 
@@ -246,12 +320,28 @@
     navigator.sendBeacon?.("/api/terminal/close", new Blob([JSON.stringify({id: session})], {type: "application/json"}));
   });
 
-  // The header badge owns the session; a lock ends the shell it was guarding.
+  // The header badge owns the session; a lock ends the shell it was guarding
+  // and returns the button to the passkey, while an unlock lets the closed
+  // terminal reopen without a second ceremony.
   window.addEventListener("session:locked", () => {
     window.PasskeyPanel?.refresh?.();
-    if (session) endSession("Session locked. Unlock again for a new shell.");
+    unlocked = false;
+    if (shell) endSession("Session locked. Unlock again for a new shell.");
+    applySession();
   });
-  window.addEventListener("session:unlocked", () => window.PasskeyPanel?.refresh?.());
+  window.addEventListener("session:unlocked", () => {
+    window.PasskeyPanel?.refresh?.();
+    unlocked = true;
+    applySession();
+    loadSessionLength();
+  });
+  // The broker's first answer is not a change, but it still decides whether
+  // the terminal, the session length and the host operations are available.
+  window.addEventListener("session:settled", syncSession);
+  syncSession();
 
-  if (settingsView) loadSettings();
+  if (settingsView && !settingsView.hidden) {
+    loadSettings();
+    loadSessionLength();
+  }
 })();

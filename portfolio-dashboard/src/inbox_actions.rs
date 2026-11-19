@@ -71,6 +71,30 @@ struct Reply {
     hold: Option<String>,
     open: Option<bool>,
     expires_in: Option<u64>,
+    minutes: Option<u64>,
+}
+
+/// The lengths Settings offers, in minutes. Anything else is a broker fault or
+/// a stale page, so it is never passed through to the browser.
+fn offered_minutes(minutes: Option<u64>) -> Option<u64> {
+    minutes.filter(|minutes| matches!(minutes, 5 | 10 | 15 | 20 | 25 | 30))
+}
+
+/// The cookie only has to outlive the session it names, and the broker owns how
+/// long that is.
+fn session_max_age(seconds: Option<u64>) -> u64 {
+    seconds
+        .filter(|seconds| (300..=1800).contains(seconds))
+        .unwrap_or(900)
+}
+
+fn session_cookie(token: &str, seconds: u64) -> Option<HeaderValue> {
+    valid_hex(token, 64).then(|| {
+        HeaderValue::from_str(&format!(
+            "{SESSION_COOKIE}={token}; Path=/; Max-Age={seconds}; Secure; HttpOnly; SameSite=Strict"
+        ))
+        .ok()
+    })?
 }
 
 fn session(headers: &HeaderMap) -> Option<&str> {
@@ -180,6 +204,12 @@ struct Cancel {
     hold: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionLength {
+    minutes: u64,
+}
+
 fn valid_operation(op: &str) -> bool {
     matches!(op, "delete" | "delete-all")
 }
@@ -236,9 +266,21 @@ pub(super) async fn auth(
             }
             cmd["hold"] = json!(hold);
         }
+        "session-length" => {
+            let Ok(SessionLength { minutes }) = serde_json::from_value(body) else {
+                return StatusCode::BAD_REQUEST.into_response();
+            };
+            if offered_minutes(Some(minutes)).is_none() {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+            cmd["minutes"] = json!(minutes);
+        }
         _ => return StatusCode::BAD_REQUEST.into_response(),
     }
-    if matches!(step.as_str(), "session" | "arm" | "cancel" | "lock") {
+    if matches!(
+        step.as_str(),
+        "session" | "arm" | "cancel" | "lock" | "session-length"
+    ) {
         let Some(token) = session(&headers) else {
             return auth_error("denied");
         };
@@ -255,7 +297,13 @@ fn auth_reply(step: &str, reply: Reply) -> Response {
         return auth_error(reply.error.as_deref().unwrap_or("unavailable"));
     }
     match step {
-        "enrollment" => Json(json!({"open": reply.open.unwrap_or(false)})).into_response(),
+        // The gate answers without a session, so Settings can show the stored
+        // length next to a control it has greyed out.
+        "enrollment" => Json(json!({
+            "open": reply.open.unwrap_or(false),
+            "minutes": offered_minutes(reply.minutes).unwrap_or(15),
+        }))
+        .into_response(),
         "enroll-options" | "login-options" => match (reply.flow, reply.public_key) {
             (Some(flow), Some(options)) if valid_hex(&flow, 64) && options.is_object() => {
                 Json(json!({"flow":flow,"publicKey":options})).into_response()
@@ -269,15 +317,30 @@ fn auth_reply(step: &str, reply: Reply) -> Response {
             let Some(token) = reply.session.filter(|v| valid_hex(v, 64)) else {
                 return auth_error("unavailable");
             };
-            let mut result = Json(json!({"ok":true})).into_response();
             // Token stays out of JavaScript, response bodies, URLs, and logs.
-            let cookie = format!(
-                "{SESSION_COOKIE}={token}; Path=/; Max-Age=900; Secure; HttpOnly; SameSite=Strict"
-            );
-            result.headers_mut().insert(
-                header::SET_COOKIE,
-                HeaderValue::from_str(&cookie).expect("hex cookie"),
-            );
+            let Some(cookie) = session_cookie(&token, session_max_age(reply.expires_in)) else {
+                return auth_error("unavailable");
+            };
+            let mut result = Json(json!({"ok":true})).into_response();
+            result.headers_mut().insert(header::SET_COOKIE, cookie);
+            result
+        }
+        // The new length governs the session already in use, so its cookie is
+        // reissued for the same token and the badge refreshes its countdown.
+        "session-length" => {
+            let Some(minutes) = offered_minutes(reply.minutes) else {
+                return auth_error("unavailable");
+            };
+            let seconds = reply.expires_in.unwrap_or(minutes * 60);
+            let Some(token) = reply.session.as_deref().filter(|v| valid_hex(v, 64)) else {
+                return auth_error("unavailable");
+            };
+            let Some(cookie) = session_cookie(token, session_max_age(Some(seconds))) else {
+                return auth_error("unavailable");
+            };
+            let mut result =
+                Json(json!({"ok":true,"minutes":minutes,"expires_in":seconds})).into_response();
+            result.headers_mut().insert(header::SET_COOKIE, cookie);
             result
         }
         "arm" => match reply.hold {
@@ -376,6 +439,13 @@ mod tests {
         ] {
             assert!(cookie.split("; ").any(|a| a == attr));
         }
+        // A longer granted session keeps its cookie for its whole life.
+        let longer = auth_reply(
+            "login-finish",
+            serde_json::from_value(json!({"ok":true,"session":token,"expires_in":1800})).unwrap(),
+        );
+        let cookie = longer.headers()[header::SET_COOKIE].to_str().unwrap();
+        assert!(cookie.split("; ").any(|attr| attr == "Max-Age=1800"));
         assert!(!cookie.contains("Domain="));
         let body = axum::body::to_bytes(response.into_body(), 2048)
             .await
@@ -409,6 +479,61 @@ mod tests {
             serde_json::from_slice::<Value>(&body).unwrap(),
             json!({"ok":true,"expires_in":641})
         );
+    }
+
+    #[tokio::test]
+    async fn a_chosen_session_length_reissues_the_cookie_and_the_page_sees_it() {
+        let token = "c".repeat(64);
+        for (minutes, seconds) in [(5, 300), (30, 1800)] {
+            let response = auth_reply(
+                "session-length",
+                serde_json::from_value(json!({
+                    "ok":true, "minutes":minutes, "expires_in":seconds, "session":token.clone()
+                }))
+                .unwrap(),
+            );
+            assert_eq!(response.status(), StatusCode::OK);
+            let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap();
+            assert!(
+                cookie
+                    .split("; ")
+                    .any(|attr| attr == format!("Max-Age={seconds}"))
+            );
+            let body = axum::body::to_bytes(response.into_body(), 512)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({"ok":true,"minutes":minutes,"expires_in":seconds})
+            );
+        }
+        // A length the page was never offered is refused rather than rendered.
+        let rejected = auth_reply(
+            "session-length",
+            serde_json::from_value(json!({
+                "ok":true, "minutes":7, "expires_in":420, "session":token
+            }))
+            .unwrap(),
+        );
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(rejected.headers().get(header::SET_COOKIE).is_none());
+    }
+
+    #[tokio::test]
+    async fn the_enrollment_gate_reports_the_current_session_length() {
+        for (minutes, expected) in [(Some(25), 25), (Some(7), 15), (None, 15)] {
+            let response = auth_reply(
+                "enrollment",
+                serde_json::from_value(json!({"ok":true,"open":false,"minutes":minutes})).unwrap(),
+            );
+            let body = axum::body::to_bytes(response.into_body(), 512)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({"open":false,"minutes":expected})
+            );
+        }
     }
 
     #[test]

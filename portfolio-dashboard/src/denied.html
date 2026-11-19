@@ -13,14 +13,59 @@
       p { line-height: 1.6; color: #bfc0ce; }
       a { color: #ffacaf; text-underline-offset: .2em; }
       a:focus-visible { outline: 2px solid white; outline-offset: 4px; }
+      #retry-status { min-height: 1.6em; font: .85rem ui-monospace, monospace; }
+      button { margin: .2rem 0 1rem; padding: .55rem 1rem; border: 1px solid #8f3e4a; border-radius: .45rem; background: #301920; color: #ffd9da; font: inherit; cursor: pointer; }
+      button:disabled { opacity: .6; cursor: progress; }
+      button:focus-visible { outline: 2px solid white; outline-offset: 4px; }
     </style>
   </head>
   <body>
     <main>
       <small>403 Forbidden</small>
       <h1>Dashboard access denied</h1>
-      <p>Connect to Tailscale with an authorized account and device, then <a href="/">try again</a>.</p>
-      <a href="https://treymouledoux.me/">Back to portfolio</a>
+      <p>Connect to Tailscale with an authorized account and device. If you just turned it on, this browser can take a moment to be recognized.</p>
+      <p id="retry-status" role="status" aria-live="polite">Checking your Tailscale connection…</p>
+      <button type="button" id="retry">Try again</button>
+      <p><a href="https://treymouledoux.me/">Back to portfolio</a></p>
     </main>
+    <script>
+      (() => {
+        // Tailscale introduces this browser a moment after it connects, so a
+        // plain reload usually asks again too early. Every check is a fresh
+        // request, and only a real answer leaves this page.
+        const status = document.getElementById("retry-status");
+        const button = document.getElementById("retry");
+        let attempts = 0;
+        let timer = 0;
+
+        async function check() {
+          clearTimeout(timer);
+          button.disabled = true;
+          status.textContent = "Checking your Tailscale connection…";
+          try {
+            const response = await fetch("/", { cache: "no-store", credentials: "same-origin", redirect: "error" });
+            if (response.ok) {
+              status.textContent = "Connected. Opening the dashboard…";
+              window.location.replace("/");
+              return;
+            }
+          } catch {
+            // The host is not answering yet; keep checking below.
+          }
+          button.disabled = false;
+          if (attempts >= 14) {
+            status.textContent = "Still locked. Confirm Tailscale is connected, then try again.";
+            return;
+          }
+          const wait = Math.min(3 + attempts, 10);
+          attempts += 1;
+          status.textContent = `Not recognized yet. Checking again in ${wait} s…`;
+          timer = setTimeout(check, wait * 1000);
+        }
+
+        button.addEventListener("click", check);
+        timer = setTimeout(check, 2000);
+      })();
+    </script>
   </body>
 </html>

@@ -2,7 +2,7 @@
 
 (() => {
   // The archive is readable without a passkey. Unlocking here starts the same
-  // owner session the header badge reports and counts down.
+  // admin session the header badge reports and counts down.
   const sessionRequest = (step, body) => fetch("/messages/auth/" + step, {
     method: "POST",
     credentials: "same-origin",
@@ -65,8 +65,41 @@
     });
   }
 
+  // The server writes each stamp in a readable UTC form; here it becomes the
+  // reader's own clock, with today's messages named as today.
+  const dayAndTime = new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  const dayAndYear = new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  const clock = new Intl.DateTimeFormat(undefined, {hour: "numeric", minute: "2-digit"});
+  const exact = new Intl.DateTimeFormat(undefined, {dateStyle: "full", timeStyle: "medium"});
+
+  // Browsers only promise three fractional digits, and the writer can emit
+  // more, so the extra precision is dropped rather than risking an invalid date.
+  const parse = stored => new Date(stored.replace(/(\.\d{3})\d+/, "$1"));
+
+  function humanize(stored, now) {
+    const when = parse(stored);
+    if (Number.isNaN(when.valueOf())) return stored;
+    if (when.toDateString() === now.toDateString()) return `Today at ${clock.format(when)}`;
+    return (when.getFullYear() === now.getFullYear() ? dayAndTime : dayAndYear).format(when);
+  }
+
+  function humanizeTimes() {
+    const now = new Date();
+    for (const node of document.querySelectorAll("#view-messages time[datetime]")) {
+      const stored = node.getAttribute("datetime");
+      node.textContent = humanize(stored, now);
+      const when = parse(stored);
+      if (!Number.isNaN(when.valueOf())) node.title = exact.format(when);
+    }
+  }
+
   function init() {
     if (window.top !== window.self) return;
+    humanizeTimes();
     const unlock = document.getElementById("inbox-lock");
     if (unlock && unlock.dataset.bound !== "true") {
       unlock.dataset.bound = "true";
@@ -80,10 +113,15 @@
     }
   }
 
-  // The badge is authoritative: locking (or expiry) elsewhere hides the
-  // controls, and unlocking from the header reveals them without a reload.
-  window.addEventListener("session:unlocked", reload);
-  window.addEventListener("session:locked", reload);
+  // The badge is authoritative: locking (or expiry) hides the controls and
+  // unlocking reveals them without a reload. Only the view on screen refreshes
+  // itself, so unlocking on Overview or Settings never navigates here.
+  function viewingMessages() {
+    const view = document.getElementById("view-messages");
+    return Boolean(view && !view.hidden);
+  }
+  window.addEventListener("session:unlocked", () => { if (viewingMessages()) reload(); });
+  window.addEventListener("session:locked", () => { if (viewingMessages()) reload(); });
 
   window.MessageInbox = { init };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

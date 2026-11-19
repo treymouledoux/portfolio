@@ -113,8 +113,35 @@ fn escape(value: &str, output: &mut String) {
             '&' => output.push_str("&amp;"),
             '<' => output.push_str("&lt;"),
             '>' => output.push_str("&gt;"),
+            // Timestamps are read from an attribute as well as printed.
+            '"' => output.push_str("&quot;"),
             _ => output.push(c),
         }
+    }
+}
+
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// The archive stores RFC 3339 from the public form. The browser restates it in
+/// local time; this readable UTC form stands in when scripting is off.
+fn readable_time(value: &str) -> String {
+    let month = value
+        .get(5..7)
+        .and_then(|month| month.parse::<usize>().ok())
+        .and_then(|month| MONTHS.get(month.checked_sub(1)?))
+        .copied();
+    let day = value
+        .get(8..10)
+        .and_then(|day| day.parse::<u8>().ok())
+        .filter(|day| (1..=31).contains(day));
+    let time = value
+        .get(11..16)
+        .filter(|time| time.as_bytes().get(2) == Some(&b':'));
+    match (month, day, time) {
+        (Some(month), Some(day), Some(time)) => format!("{month} {day}, {time} UTC"),
+        _ => value.to_owned(),
     }
 }
 
@@ -161,9 +188,11 @@ fn render_card(entry: &Entry, html: &mut String, admin: bool, read: Option<bool>
     escape(&entry.data.name, html);
     html.push_str("</h2><p class=\"meta\" dir=\"auto\">");
     escape(&entry.data.email, html);
-    html.push_str("</p><p class=\"meta\">");
+    html.push_str("</p><p class=\"meta\"><time class=\"message-time\" datetime=\"");
     escape(&entry.data.received_at, html);
-    html.push_str("</p><p class=\"message\" dir=\"auto\">");
+    html.push_str("\">");
+    escape(&readable_time(&entry.data.received_at), html);
+    html.push_str("</time></p><p class=\"message\" dir=\"auto\">");
     escape(&entry.data.message, html);
     html.push_str("</p>");
     if can_mark || admin {
@@ -453,6 +482,18 @@ mod tests {
         assert_eq!(older.entries[0].data.name, "3");
         assert!(older.older.is_none());
         assert!(read_page(Cursor::new(&data), Some(next - 1)).is_err());
+    }
+
+    #[test]
+    fn timestamps_read_as_dates_rather_than_raw_iso_strings() {
+        assert_eq!(
+            readable_time("2026-11-19T00:04:40.12390378+00:00"),
+            "Nov 19, 00:04 UTC"
+        );
+        assert_eq!(readable_time("2026-01-05T13:07:00Z"), "Jan 5, 13:07 UTC");
+        // A row that is not a full timestamp is shown as it was stored.
+        assert_eq!(readable_time("2026-11-18"), "2026-11-18");
+        assert_eq!(readable_time("now"), "now");
     }
 
     #[test]
