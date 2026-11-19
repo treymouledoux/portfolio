@@ -5,7 +5,6 @@ After=tailscaled.service
 [Service]
 Type=oneshot
 User=portfolio-muse
-DynamicUser=yes
 Group=portfolio-dashboard
 EnvironmentFile=/etc/portfolio-dashboard/muse.env
 ExecStart=/usr/bin/python3 -I -B /usr/local/libexec/portfolio-muse-status
