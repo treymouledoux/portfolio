@@ -1,3 +1,4 @@
+mod admin;
 mod identity;
 mod inbox;
 mod inbox_actions;
@@ -5,13 +6,14 @@ mod metrics;
 
 use axum::{
     Json, Router,
-    extract::{Request, State},
+    extract::{Path as AxumPath, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
 use serde::Serialize;
+use serde_json::{Value, json};
 use std::{
     collections::HashSet,
     env, io,
@@ -31,6 +33,7 @@ const PEER_SOCKET: &str = "/run/portfolio-dashboard-peer/dashboard.sock";
 const WHOIS_SOCKET: &str = "/run/portfolio-whois/whois.sock";
 const VIEW_OVERVIEW: &str = "overview";
 const VIEW_MESSAGES: &str = "messages";
+const VIEW_SETTINGS: &str = "settings";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
@@ -39,47 +42,40 @@ const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKx
 /// The server fills the requested view, so a deep link, a reload or a browser
 /// without this script still shows the right thing.
 pub(crate) fn shell(view: &str, messages: &str) -> Html<String> {
-    let messages_view = view == VIEW_MESSAGES;
+    let current = |name: &str| {
+        if view == name {
+            r#" aria-current="page""#
+        } else {
+            ""
+        }
+    };
+    let hidden = |name: &str| if view == name { "" } else { " hidden" };
     Html(
         include_str!("app.html")
             .replace(
                 "{{TITLE}}",
-                if messages_view {
-                    "Messages · Tailnet dashboard"
-                } else {
-                    "Overview · Tailnet dashboard"
+                match view {
+                    VIEW_MESSAGES => "Messages · Tailnet dashboard",
+                    VIEW_SETTINGS => "Settings · Tailnet dashboard",
+                    _ => "Overview · Tailnet dashboard",
                 },
             )
-            .replace(
-                "{{OVERVIEW_HIDDEN}}",
-                if messages_view { " hidden" } else { "" },
-            )
-            .replace(
-                "{{MESSAGES_HIDDEN}}",
-                if messages_view { "" } else { " hidden" },
-            )
-            .replace(
-                "{{OVERVIEW_CURRENT}}",
-                if messages_view {
-                    ""
-                } else {
-                    r#" aria-current="page""#
-                },
-            )
-            .replace(
-                "{{MESSAGES_CURRENT}}",
-                if messages_view {
-                    r#" aria-current="page""#
-                } else {
-                    ""
-                },
-            )
+            .replace("{{OVERVIEW_HIDDEN}}", hidden(VIEW_OVERVIEW))
+            .replace("{{MESSAGES_HIDDEN}}", hidden(VIEW_MESSAGES))
+            .replace("{{SETTINGS_HIDDEN}}", hidden(VIEW_SETTINGS))
+            .replace("{{OVERVIEW_CURRENT}}", current(VIEW_OVERVIEW))
+            .replace("{{MESSAGES_CURRENT}}", current(VIEW_MESSAGES))
+            .replace("{{SETTINGS_CURRENT}}", current(VIEW_SETTINGS))
             .replace("{{MESSAGES}}", messages),
     )
 }
 
 async fn overview() -> Html<String> {
     shell(VIEW_OVERVIEW, "")
+}
+
+async fn settings_page() -> Html<String> {
+    shell(VIEW_SETTINGS, "")
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -286,11 +282,15 @@ async fn protect(
             && (!inbox_path || app.admin_origin.is_some())
             && (!destructive || app.inbox_admins.contains(login))
     });
+    // Settings and the host agent's verbs are owner actions, not viewer ones:
+    // the same passkey session, origin and same-site rules cover them.
+    let admin_path = path.starts_with("/api/admin/") || path.starts_with("/api/terminal/");
+    let settings_path = path == "/api/settings";
     let site = single_header(req.headers(), "sec-fetch-site");
     let dest = single_header(req.headers(), "sec-fetch-dest");
     let navigation = (req.method() == Method::GET || req.method() == Method::HEAD)
         && single_header(req.headers(), "sec-fetch-mode") == Some("navigate")
-        && (path == "/" || (inbox && dest == Some("document")));
+        && (path == "/" || path == "/settings" || (inbox && dest == Some("document")));
     let foreign_request = req.headers().contains_key("sec-fetch-site")
         && !matches!(site, Some("same-origin" | "none"))
         && !navigation;
@@ -304,14 +304,30 @@ async fn protect(
                 d != "empty"
             }
         });
-    let wrong_origin = inbox_path
-        && req.method() == Method::POST
+    let guarded_write = req.method() == Method::POST && (inbox_path || admin_path || settings_path);
+    let wrong_origin = guarded_write
         && (site != Some("same-origin")
             || single_header(req.headers(), "origin") != app.admin_origin.as_deref());
-    let denied = !allowed || foreign_request || wrong_origin || wrong_destination;
+    // An owner action without a configured origin cannot be verified, so it is
+    // refused until DASHBOARD_ADMIN_ORIGIN is set.
+    let unconfigured = (admin_path || settings_path) && app.admin_origin.is_none();
+    let denied = !allowed || foreign_request || wrong_origin || wrong_destination || unconfigured;
     // The login and enrollment ceremony stay available before unlock. Never
     // open the archive to render a locked page.
-    let needs_session = inbox_path && !auth_api && path != "/messages/passkey";
+    let needs_session = (inbox_path && !auth_api && path != "/messages/passkey")
+        || admin_path
+        || (settings_path && req.method() != Method::GET);
+    // Handlers and the passkey broker read the identity this connection already
+    // proved. On the gateway that value came from the peer lookup, never from
+    // the client, so it is settled before anyone reads the header.
+    if !denied && matches!(trust, Trust::Gateway) {
+        req.headers_mut().remove("tailscale-user-login");
+        if let Some(login) = &login
+            && let Ok(value) = HeaderValue::from_str(login)
+        {
+            req.headers_mut().insert("tailscale-user-login", value);
+        }
+    }
     let mut response = if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
     } else if needs_session && !inbox_actions::unlocked(req.headers()).await {
@@ -325,16 +341,6 @@ async fn protect(
             StatusCode::UNAUTHORIZED.into_response()
         }
     } else {
-        // Handlers read the identity this connection already proved. On the
-        // gateway that value came from the peer lookup, never from the client.
-        if matches!(trust, Trust::Gateway) {
-            req.headers_mut().remove("tailscale-user-login");
-            if let Some(login) = &login
-                && let Ok(value) = HeaderValue::from_str(login)
-            {
-                req.headers_mut().insert("tailscale-user-login", value);
-            }
-        }
         next.run(req).await
     };
     let headers = response.headers_mut();
@@ -385,6 +391,39 @@ fn app(state: App) -> Router {
 fn app_with(state: App, trust: Trust) -> Router {
     Router::new()
         .route("/", get(overview))
+        .route("/settings", get(settings_page))
+        .route("/api/settings", get(current_settings).post(save_settings))
+        .route(
+            "/api/admin/restart/{target}",
+            axum::routing::post(restart_service),
+        )
+        .route("/api/admin/reboot", axum::routing::post(reboot_device))
+        .route(
+            "/api/terminal/open",
+            axum::routing::post(terminal_open).layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/terminal/read",
+            axum::routing::post(terminal_read).layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/terminal/write",
+            axum::routing::post(terminal_write)
+                .layer(axum::extract::DefaultBodyLimit::max(8 * 1024)),
+        )
+        .route(
+            "/api/terminal/close",
+            axum::routing::post(terminal_close).layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/settings.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    include_str!("settings.js"),
+                )
+            }),
+        )
         .route("/api/check/{target}", axum::routing::post(test_service))
         .route("/messages", get(inbox::messages))
         .route("/messages/view", get(inbox::view))
@@ -539,6 +578,127 @@ async fn test_service(
         probes.record();
     }
     outcome.into_response()
+}
+
+async fn current_settings(State(app): State<App>) -> Json<metrics::Settings> {
+    Json(
+        app.probes
+            .as_ref()
+            .map(|probes| probes.settings())
+            .unwrap_or_default(),
+    )
+}
+
+/// Both values are one of the page's fixed choices; anything else is refused
+/// rather than quietly clamped to something the owner did not pick.
+async fn save_settings(State(app): State<App>, Json(body): Json<Value>) -> Response {
+    let interval = body.get("interval_secs").and_then(Value::as_u64);
+    let retention = body
+        .get("retention")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok());
+    let (Some(probes), Some(interval), Some(retention)) =
+        (app.probes.as_ref(), interval, retention)
+    else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    match metrics::Settings::accepted(interval, retention) {
+        Some(next) => {
+            probes.set_settings(next);
+            Json(next).into_response()
+        }
+        None => (StatusCode::BAD_REQUEST, "Choose one of the offered values.").into_response(),
+    }
+}
+
+/// Only the three named units exist on the agent; nothing else is forwarded.
+async fn restart_service(AxumPath(target): AxumPath<String>) -> Response {
+    if !matches!(target.as_str(), "tailscaled" | "dashboard" | "public") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    admin::perform(json!({"verb": "restart", "target": target})).await
+}
+
+#[derive(serde::Deserialize)]
+struct Confirmation {
+    confirm: String,
+}
+
+async fn reboot_device(Json(body): Json<Confirmation>) -> Response {
+    // The page asks for the word to be typed; the check is repeated here.
+    if body.confirm != "REBOOT" {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    admin::perform(json!({"verb": "reboot"})).await
+}
+
+fn terminal_id(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+async fn terminal_open(State(app): State<App>, Json(body): Json<Value>) -> Response {
+    let Some(user) = app.pi_ssh_user.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Set DASHBOARD_PI_SSH_USER to open a shell.",
+        )
+            .into_response();
+    };
+    let cols = body.get("cols").and_then(Value::as_u64).unwrap_or(100);
+    let rows = body.get("rows").and_then(Value::as_u64).unwrap_or(30);
+    match admin::call(json!({"verb": "term-open", "user": user, "cols": cols, "rows": rows})).await
+    {
+        Some(reply) => Json(reply).into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The host agent did not answer.",
+        )
+            .into_response(),
+    }
+}
+
+/// Reads long-poll for up to eight seconds inside the agent, so this is a POST
+/// with the same origin rules as the other owner actions rather than a query.
+async fn terminal_read(Json(body): Json<Value>) -> Response {
+    let (Some(id), offset) = (
+        body.get("id").and_then(Value::as_str),
+        body.get("offset").and_then(Value::as_u64).unwrap_or(0),
+    ) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    if !terminal_id(id) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match admin::call(json!({"verb": "term-read", "id": id, "offset": offset})).await {
+        Some(reply) => Json(reply).into_response(),
+        None => (StatusCode::SERVICE_UNAVAILABLE, "The terminal closed.").into_response(),
+    }
+}
+
+async fn terminal_write(Json(body): Json<Value>) -> Response {
+    let (Some(id), Some(data)) = (
+        body.get("id").and_then(Value::as_str),
+        body.get("data").and_then(Value::as_str),
+    ) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    if !terminal_id(id) || data.len() > 4096 {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    admin::perform(json!({"verb": "term-write", "id": id, "data": data})).await
+}
+
+async fn terminal_close(Json(body): Json<Value>) -> Response {
+    let Some(id) = body.get("id").and_then(Value::as_str) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    if !terminal_id(id) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    admin::perform(json!({"verb": "term-close", "id": id})).await
 }
 
 fn claim_listener(fd: std::os::fd::RawFd, path: &str) -> io::Result<UnixListener> {

@@ -4,11 +4,16 @@
   const views = {
     overview: document.getElementById("view-overview"),
     messages: document.getElementById("view-messages"),
+    settings: document.getElementById("view-settings"),
   };
   const tabs = Array.from(document.querySelectorAll("#dashboard-tabs a[data-view]"));
   const badge = document.getElementById("inbox-badge");
   const denied = document.getElementById("tpl-denied");
-  const titles = {overview: "Overview · Tailnet dashboard", messages: "Messages · Tailnet dashboard"};
+  const titles = {
+    overview: "Overview · Tailnet dashboard",
+    messages: "Messages · Tailnet dashboard",
+    settings: "Settings · Tailnet dashboard",
+  };
   let loaded = null;
   let inflight = null;
 
@@ -156,7 +161,10 @@
     },
   };
 
-  if (views.messages && !views.messages.hidden) {
+  if (views.settings && !views.settings.hidden) {
+    // Settings is a full navigation, so this only fixes up the title and tab.
+    markCurrent("settings");
+  } else if (views.messages && !views.messages.hidden) {
     loaded = location.pathname + location.search;
     markCurrent("messages");
     updateBadge(views.messages.querySelector("#inbox-view"));

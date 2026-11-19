@@ -1,0 +1,27 @@
+[Unit]
+Description=Host agent for the private dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/libexec/portfolio-dashboard-agent
+Environment=DASHBOARD_AGENT_SHELL_USER=trey
+Type=simple
+User=root
+UMask=0077
+# The browser shell drops to the human account, so sudo inside it cannot work.
+# That is deliberate: the passkey buys a normal account, not root.
+NoNewPrivileges=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+PrivateDevices=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# The shell is a real login shell for a human, so the agent does not enter a
+# home sandbox: /home must stay writable for the account it runs.
+Restart=on-failure
+RestartSec=5

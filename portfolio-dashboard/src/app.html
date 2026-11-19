@@ -11,6 +11,7 @@
     <script src="/passkey.js" defer></script>
     <script src="/hold-delete.js" defer></script>
     <script src="/messages.js" defer></script>
+    <script src="/settings.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -23,6 +24,7 @@
         <nav class="dashboard-tabs" id="dashboard-tabs" aria-label="Dashboard">
           <a href="/" data-view="overview"{{OVERVIEW_CURRENT}}>Overview</a>
           <a href="/messages" data-view="messages"{{MESSAGES_CURRENT}}>Messages<span class="unread-count" id="inbox-badge" hidden></span></a>
+          <a href="/settings" data-view="settings"{{SETTINGS_CURRENT}}>Settings</a>
         </nav>
       </div>
     </header>
@@ -151,9 +153,96 @@
               <code id="ssh-command" hidden></code>
             </div>
           </div>
+          <div class="webterm" id="webterm">
+            <div class="webterm-head">
+              <h3>Web terminal</h3>
+              <span class="webterm-badge" id="webterm-badge">Locked</span>
+            </div>
+            <p class="webterm-copy" id="webterm-copy">Open a shell on <strong id="webterm-host">the Pi</strong> from this browser, as <strong id="webterm-user">your approved account</strong>, after unlocking with your passkey. It replaces nothing about SSH; it is the same account without a second terminal window.</p>
+            <div class="webterm-actions">
+              <button type="button" id="webterm-unlock">Unlock with passkey</button>
+              <button type="button" id="webterm-close" hidden>Close session</button>
+            </div>
+            <pre class="webterm-screen" id="webterm-screen" hidden tabindex="0" aria-label="Terminal output"></pre>
+            <form class="webterm-input" id="webterm-form" hidden>
+              <label class="webterm-label" for="webterm-line">Command</label>
+              <span class="webterm-prompt" aria-hidden="true">$</span>
+              <input id="webterm-line" autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button type="submit">Send</button>
+            </form>
+            <p class="webterm-status" id="webterm-status" role="status" aria-live="polite"></p>
+          </div>
         </section>
       </section>
       <section id="view-messages" aria-label="Messages"{{MESSAGES_HIDDEN}}>{{MESSAGES}}</section>
+      <section id="view-settings" aria-label="Settings"{{SETTINGS_HIDDEN}}>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h1>Settings</h1>
+            <p class="lede">Telemetry cadence, host operations and passkey access.</p>
+          </div>
+        </div>
+        <section aria-labelledby="telemetry">
+          <h2 id="telemetry">Telemetry</h2>
+          <form class="settings-card" id="telemetry-form">
+            <div class="settings-field">
+              <label for="setting-interval">Check frequency</label>
+              <select id="setting-interval">
+                <option value="15">Every 15 seconds</option>
+                <option value="30">Every 30 seconds</option>
+                <option value="60">Every minute</option>
+                <option value="120">Every 2 minutes</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label for="setting-retention">History retention</label>
+              <select id="setting-retention">
+                <option value="60">60 checks</option>
+                <option value="120">120 checks</option>
+                <option value="240">240 checks</option>
+              </select>
+            </div>
+            <button type="submit">Save telemetry</button>
+            <p class="settings-status" id="telemetry-status" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+        <section aria-labelledby="passkeys">
+          <h2 id="passkeys">Passkeys</h2>
+          <div class="settings-card">
+            <p>One passkey guards the inbox, the web terminal and every host operation here. Its ceremonies stay on the Pi's broker: enrollment needs an open window, and a verified session lasts fifteen minutes.</p>
+            <p class="settings-actions">
+              <a class="button-link" href="/messages/passkey">Manage passkey</a>
+            </p>
+          </div>
+        </section>
+        <section aria-labelledby="operations">
+          <h2 id="operations">Host operations</h2>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div><strong>Restart Tailscale</strong><p>Reconnects the WireGuard tunnels without restarting anything else.</p></div>
+              <button type="button" data-restart="tailscaled">Restart</button>
+            </div>
+            <div class="settings-row">
+              <div><strong>Restart the dashboard</strong><p>Reloads this service; the page reconnects on its own.</p></div>
+              <button type="button" data-restart="dashboard">Restart</button>
+            </div>
+            <div class="settings-row">
+              <div><strong>Restart the public site</strong><p>Reloads the Axum service that serves treymouledoux.me.</p></div>
+              <button type="button" data-restart="public">Restart</button>
+            </div>
+            <div class="settings-row is-danger">
+              <div><strong>Reboot the Pi</strong><p>Everything reconnects in about a minute. Type REBOOT to confirm.</p></div>
+              <form class="settings-confirm" id="reboot-form">
+                <label class="webterm-label" for="reboot-confirm">Confirmation</label>
+                <input id="reboot-confirm" autocomplete="off" spellcheck="false" placeholder="REBOOT">
+                <button type="submit">Reboot</button>
+              </form>
+            </div>
+            <p class="settings-status" id="operation-status" role="status" aria-live="polite"></p>
+          </div>
+        </section>
+      </section>
     </main>
     <template id="tpl-denied">
       <header class="page-head">

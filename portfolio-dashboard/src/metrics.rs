@@ -11,6 +11,35 @@ const RETEST_DELAY: Duration = Duration::from_secs(5);
 // One hour of checks, so a fresh tab opens on a full graph.
 const HISTORY_LEN: usize = 120;
 
+/// The two things the settings page owns: how often the Pi checks, and how
+/// many rows it keeps. Both are validated against these fixed choices.
+pub(super) const INTERVALS: [u64; 4] = [15, 30, 60, 120];
+pub(super) const RETENTIONS: [usize; 3] = [60, 120, 240];
+
+#[derive(Clone, Copy, Serialize)]
+pub(super) struct Settings {
+    pub(super) interval_secs: u64,
+    pub(super) retention: usize,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            interval_secs: PROBE_INTERVAL.as_secs(),
+            retention: HISTORY_LEN,
+        }
+    }
+}
+
+impl Settings {
+    pub(super) fn accepted(interval_secs: u64, retention: usize) -> Option<Self> {
+        (INTERVALS.contains(&interval_secs) && RETENTIONS.contains(&retention)).then_some(Self {
+            interval_secs,
+            retention,
+        })
+    }
+}
+
 /// One probe per device: the website over HTTPS, JetKVM over TCP to its one
 /// port and by IPv4 echo, and Muse by IPv4 echo. No device needs two ping
 /// methods for the same reading.
@@ -273,6 +302,7 @@ pub(super) struct Probes {
     tx: watch::Sender<Status>,
     last: [tokio::sync::Mutex<Option<Instant>>; 4],
     history: Mutex<VecDeque<Sample>>,
+    settings: Mutex<Settings>,
 }
 
 impl Probes {
@@ -289,17 +319,43 @@ impl Probes {
             tx,
             last: Default::default(),
             history: Mutex::new(VecDeque::with_capacity(HISTORY_LEN)),
+            settings: Mutex::new(Settings::default()),
+        }
+    }
+
+    pub(super) fn settings(&self) -> Settings {
+        *self
+            .settings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Retention can shrink the buffer immediately, so the next graph is the
+    /// length the page asked for rather than the previous one.
+    pub(super) fn set_settings(&self, next: Settings) {
+        let mut settings = self
+            .settings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *settings = next;
+        let mut history = self
+            .history
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while history.len() > next.retention {
+            history.pop_front();
         }
     }
 
     /// Append the whole current picture, whether a timer or a person asked for it.
     pub(super) fn record(&self) {
         let sample = Sample::of(&self.tx.borrow());
+        let capacity = self.settings().retention;
         let mut history = self
             .history
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if history.len() == HISTORY_LEN {
+        while history.len() >= capacity {
             history.pop_front();
         }
         history.push_back(sample);
@@ -388,10 +444,8 @@ impl Probes {
 
     pub(super) async fn monitor(self: Arc<Self>) {
         let mut previous = None;
-        let mut timer = time::interval(PROBE_INTERVAL);
-        timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
         loop {
-            timer.tick().await;
+            let every = Duration::from_secs(self.settings().interval_secs);
             let prior = previous.take();
             let host = tokio::task::spawn_blocking(move || {
                 let (counters, host) = host_sample(prior);
@@ -412,6 +466,7 @@ impl Probes {
                 });
             }
             self.record();
+            time::sleep(every).await;
         }
     }
 }

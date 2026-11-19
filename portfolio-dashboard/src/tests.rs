@@ -891,3 +891,35 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
         );
     }
 }
+
+#[tokio::test]
+async fn settings_is_a_view_for_a_viewer() {
+    let response = call("GET", "/settings", &[("tailscale-user-login", OWNER)]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+    let page = String::from_utf8(body.to_vec()).unwrap();
+    assert!(page.contains("id=\"view-settings\""));
+    assert!(page.contains("Settings · Tailnet dashboard"));
+    assert!(page.contains("id=\"webterm\""));
+}
+
+/// The owner actions sit behind the same origin and passkey rules as the
+/// inbox. Without a configured origin there is nothing to verify against, so
+/// every one of them is refused rather than accepted unverified.
+#[tokio::test]
+async fn owner_actions_are_refused_without_a_configured_origin() {
+    let login = ("tailscale-user-login", OWNER);
+    for (method, path) in [
+        ("GET", "/api/settings"),
+        ("POST", "/api/settings"),
+        ("POST", "/api/admin/restart/tailscaled"),
+        ("POST", "/api/admin/reboot"),
+        ("POST", "/api/terminal/open"),
+        ("POST", "/api/terminal/read"),
+        ("POST", "/api/terminal/write"),
+        ("POST", "/api/terminal/close"),
+    ] {
+        let response = call(method, path, &[login]).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{method} {path}");
+    }
+}
