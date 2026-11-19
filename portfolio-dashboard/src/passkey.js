@@ -7,15 +7,18 @@
   const enroll = document.getElementById("passkey-enroll");
   const status = document.getElementById("passkey-status");
   const locked = document.getElementById("inbox-locked");
-  let enrollmentOpen = false;
+  // pending: the check has not answered yet; unknown: it failed. Only an
+  // explicit "closed" hides setup, so a broker outage never blocks the one
+  // path to first-time enrollment. The broker still refuses a real attempt.
+  let enrollment = "pending";
 
   function syncEnroll() {
-    enroll.disabled = !enrollmentOpen;
-    enroll.toggleAttribute("data-closed", !enrollmentOpen);
-    if (enrollmentOpen) {
-      enroll.removeAttribute("title");
-    } else {
+    enroll.disabled = enrollment === "pending" || enrollment === "closed";
+    enroll.toggleAttribute("data-closed", enrollment === "closed");
+    if (enrollment === "closed") {
       enroll.title = "Setting up a passkey needs an enrollment window opened on the Pi.";
+    } else {
+      enroll.removeAttribute("title");
     }
   }
 
@@ -66,7 +69,7 @@
         authenticated();
       }
     } catch (error) {
-      if (error.code === "closed") enrollmentOpen = false;
+      if (error.code === "closed") enrollment = "closed";
       status.textContent = error.name === "NotAllowedError"
         ? "The passkey request was cancelled or timed out."
         : (error.message || "Passkey verification failed.");
@@ -90,10 +93,13 @@
   syncEnroll();
   post("enrollment")
     .then(({ open }) => {
-      enrollmentOpen = open === true;
+      enrollment = open === true ? "open" : "closed";
       syncEnroll();
     })
-    .catch(() => syncEnroll());
+    .catch(() => {
+      enrollment = "unknown";
+      syncEnroll();
+    });
   if (locked) {
     login.disabled = false;
     return;
