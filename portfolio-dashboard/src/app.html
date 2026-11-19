@@ -103,6 +103,12 @@
                 <button type="button" data-view="cpu" aria-pressed="false" hidden>CPU</button>
                 <button type="button" data-view="ram" aria-pressed="false" hidden>RAM</button>
               </div>
+              <label class="chart-select" id="cpu-mode-wrap" hidden>CPU view
+                <select id="cpu-mode">
+                  <option value="total">Total</option>
+                  <option value="cores">Per core</option>
+                </select>
+              </label>
               <details class="device-menu" id="device-menu" hidden>
                 <summary>Devices <span id="device-count">3 / 3</span></summary>
                 <div class="device-list" role="group" aria-label="Compare devices">
@@ -116,6 +122,7 @@
           </div>
           <div class="chart-pills" id="chart-pills"></div>
           <figure class="chart">
+            <p class="chart-max" id="chart-max" hidden></p>
             <svg id="chart" viewBox="0 0 640 200" preserveAspectRatio="none" role="img" aria-labelledby="chart-title chart-summary">
               <title id="chart-title">Ping comparison</title>
               <g class="chart-grid" aria-hidden="true">

@@ -32,7 +32,7 @@ const BODY_LIMIT: usize = 64 * 1024;
 // Split DNS sends this name to the Pi for tailnet devices. Public clients reach
 // this server instead, and get only the notice below.
 const DASHBOARD_HOST: &str = "dashboard.treymouledoux.me";
-const TAILNET_CSP: &str = "default-src 'none'; style-src 'sha256-Eno28avfTp2//0n2psVHYPiXlcNGB4R1yLC0qvfaS/8='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const TAILNET_CSP: &str = "default-src 'none'; style-src 'sha256-orI6BEsV1hqPjQzu5Auggs+dbgjQ59Bz4VKkXI+eHIQ='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const COOLDOWN: Duration = Duration::from_secs(3600);
 const ATTEMPT_WINDOW: Duration = Duration::from_secs(60);
 const MAX_CLIENTS: usize = 4096;

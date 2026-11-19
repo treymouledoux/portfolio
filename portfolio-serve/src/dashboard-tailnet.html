@@ -124,7 +124,6 @@
       color: #ffabac;
       font: .78rem ui-monospace, monospace;
     }
-    .note { margin-top: 1.6rem; color: #8f93a3; font-size: .87rem; }
     nav { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; margin-top: 2rem; }
     nav a {
       display: inline-block;
@@ -147,13 +146,12 @@
   <main>
     <div class="shield" aria-hidden="true"><span class="lock"></span></div>
     <h1>Access Denied</h1>
-    <p>dashboard.treymouledoux.me is a private address. It resolves inside my tailnet and only for a device that is signed in with an approved account, so the public internet never reaches the dashboard itself. This notice is the whole public response.</p>
+    <p>dashboard.treymouledoux.me only exists inside my Tailscale network. It is a private address that answers a device signed in with an approved account, which is why the open internet has nothing to show you here.</p>
     <ol>
       <li>Open Tailscale on this device.</li>
       <li>Confirm it is connected with the approved account.</li>
       <li>Reload this page.</li>
     </ol>
-    <p class="note">No status, messages or dashboard files are served publicly.</p>
     <nav aria-label="Access options">
       <a href="https://dashboard.treymouledoux.me/">Try again</a>
       <a href="https://treymouledoux.me/">Back to portfolio</a>

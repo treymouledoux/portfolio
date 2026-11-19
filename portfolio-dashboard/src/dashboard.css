@@ -318,6 +318,46 @@ figure.chart figcaption { margin-top: 0.9rem; }
 .series-portfolio { --series: #f3c98b; }
 .series-cpu { --series: #8ee6d5; }
 .series-ram { --series: #b3a4ff; }
+.series-core0 { --series: #8ee6d5; }
+.series-core1 { --series: #94b8ff; }
+.series-core2 { --series: #f3c98b; }
+.series-core3 { --series: #ff9fb8; }
+.series-core4 { --series: #b3a4ff; }
+.series-core5 { --series: #9fe0a8; }
+.series-core6 { --series: #ffc6f0; }
+.series-core7 { --series: #c9d4de; }
+
+.chart-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #10191e;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.chart-select select {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.chart-select select option { background: #10191e; color: var(--text); }
+.chart-select select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chart-max {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 0.45rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.4rem;
+  background: rgba(179, 164, 255, 0.09);
+  color: #cfc8ff;
+  font: 0.72rem/1.4 var(--mono);
+}
 
 .chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; }
 .device-menu { position: relative; }

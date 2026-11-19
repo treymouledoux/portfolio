@@ -40,7 +40,12 @@ const chart = {
 const viewButtons = [...document.querySelectorAll(".chart-tabs button")];
 const deviceBoxes = [...document.querySelectorAll(".device-list input[type=checkbox]")];
 const deviceToggle = document.getElementById("device-toggle");
+const cpuMode = document.getElementById("cpu-mode");
+const cpuModeWrap = document.getElementById("cpu-mode-wrap");
+const chartMax = document.getElementById("chart-max");
 let view = "ping";
+let cpuView = "total";
+let memoryTotal = null;
 let rows = [];
 
 function setReading(element, label, state = "unknown") {
@@ -72,6 +77,7 @@ function showSnapshot(snapshot) {
   setReading(document.getElementById("muse"), online === true ? "Connected" : online === false ? "Offline" : "Unknown",
     online === true ? "good" : online === false ? "bad" : "unknown");
   const h = snapshot.host || {};
+  memoryTotal = Number.isFinite(h.memory_total_mib) && h.memory_total_mib > 0 ? h.memory_total_mib : null;
   document.getElementById("cpu").textContent = Number.isFinite(h.cpu_percent) ? `${h.cpu_percent.toFixed(1)}%` : "—";
   document.getElementById("ram").textContent = Number.isFinite(h.memory_used_mib) ? `${h.memory_used_mib} / ${h.memory_total_mib} MiB` : "—";
   const t = h.uptime_seconds;
@@ -103,6 +109,7 @@ async function loadHistory(signal) {
     const body = await response.json();
     if (!Array.isArray(body?.samples)) return false;
     rows = body.samples.filter(row => Number.isFinite(row?.at)).slice(-POINTS);
+    syncMenu();
     drawChart();
     return true;
   } catch {
@@ -185,6 +192,12 @@ for (const box of deviceBoxes) {
     drawChart();
   });
 }
+cpuMode.addEventListener("change", () => {
+  cpuView = cpuMode.value === "cores" ? "cores" : "total";
+  syncMenu();
+  saveView();
+  drawChart();
+});
 deviceToggle.hidden = false;
 deviceToggle.addEventListener("click", () => {
   const every = chosen.size === Object.keys(DEVICES).length;
@@ -219,6 +232,9 @@ loadHistory();
 
 function syncMenu() {
   chart.menu.hidden = view !== "ping";
+  // The core breakdown only exists for CPU, and only once the Pi reports it.
+  cpuModeWrap.hidden = view !== "cpu" || coreCount() < 2;
+  cpuMode.value = cpuView;
   const total = Object.keys(DEVICES).length;
   chart.count.textContent = `${chosen.size} / ${total}`;
   deviceToggle.textContent = chosen.size === total ? "Select none" : "Select all";
@@ -245,18 +261,34 @@ function restoreView() {
       for (const key of devices) chosen.add(key);
     }
     if (["ping", "cpu", "ram"].includes(saved?.view)) view = saved.view;
+    if (["total", "cores"].includes(saved?.cpu)) cpuView = saved.cpu;
     for (const control of viewButtons) control.setAttribute("aria-pressed", String(control.dataset.view === view));
   } catch {}
 }
 
 function saveView() {
   try {
-    sessionStorage.setItem(HISTORY_STORE, JSON.stringify({devices: [...chosen], view}));
+    sessionStorage.setItem(HISTORY_STORE, JSON.stringify({devices: [...chosen], view, cpu: cpuView}));
   } catch {}
 }
 
+// Core series share the rows with the aggregate: `cores` holds one reading per
+// CPU in /proc/stat order.
+function coreCount() {
+  return Math.min(8, Math.max(0, ...rows.map(row => Array.isArray(row.cores) ? row.cores.length : 0)));
+}
+
 function seriesFor(key) {
-  return rows.map(row => ({at: row.at * 1000, value: Number.isFinite(row[key]) ? row[key] : null}));
+  const core = /^core(\d)$/.exec(key);
+  const index = core ? Number(core[1]) : -1;
+  return rows.map(row => {
+    const value = index >= 0 ? row.cores?.[index] : row[key];
+    return {at: row.at * 1000, value: Number.isFinite(value) ? value : null};
+  });
+}
+
+function unitFor(key) {
+  return UNIT[key] ?? "%";
 }
 
 // Dot radii that stay round on screen although the plot stretches to fit.
@@ -286,14 +318,20 @@ function hideTip() {
 }
 
 function drawChart() {
+  const cores = view === "cpu" && cpuView === "cores" ? coreCount() : 0;
   const lines = view === "ping"
     ? Object.keys(DEVICES).filter(key => chosen.has(key)).map(key => ({key, label: DEVICES[key].label}))
-    : [{key: view, label: SERIES[view].label}];
+    : cores > 0
+      ? Array.from({length: cores}, (_, index) => ({key: `core${index}`, label: `Core ${index}`}))
+      : [{key: view, label: SERIES[view].label}];
   const data = Object.fromEntries(lines.map(line => [line.key, seriesFor(line.key)]));
   chart.series.replaceChildren();
   chart.pills.replaceChildren();
   hideTip();
-  chart.title.textContent = view === "ping" ? "Ping comparison" : `${SERIES[view].label} over time`;
+  chart.title.textContent = view === "ping"
+    ? "Ping comparison"
+    : `${SERIES[view].label} over time${cores ? `, one line per core` : ""}`;
+  showMax(view === "ram" && Number.isFinite(memoryTotal));
   if (!lines.length) {
     chart.summary.textContent = "No devices selected. Pick at least one under Devices.";
     chart.span.textContent = "";
@@ -312,8 +350,11 @@ function drawChart() {
   const low = Math.min(...values);
   const high = Math.max(...values);
   const room = high - low || Math.max(Math.abs(high) * 0.2, 1);
-  const floor = view === "ping" ? 0 : low - room * 0.15;
-  const ceiling = view === "ping" ? Math.max(high * 1.15, 5) : high + room * 0.15;
+  // Memory is drawn against the whole module, so the top line is the maximum
+  // the Pi has rather than the busiest moment in the window.
+  const capped = view === "ram" && Number.isFinite(memoryTotal);
+  const floor = capped ? 0 : view === "ping" ? 0 : low - room * 0.15;
+  const ceiling = capped ? memoryTotal : view === "ping" ? Math.max(high * 1.15, 5) : high + room * 0.15;
   const x = index => (count < 2 ? 640 : (index / (count - 1)) * 640);
   const y = value => 190 - ((value - floor) / (ceiling - floor)) * 180;
   const dot = dotSize(3);
@@ -352,7 +393,7 @@ function drawChart() {
         ry: reach.ry.toFixed(2),
         class: "chart-hit",
         "data-label": line.label,
-        "data-value": formatValue(UNIT[line.key], point.value),
+        "data-value": formatValue(unitFor(line.key), point.value),
         "data-at": String(point.at),
       }));
     }
@@ -368,9 +409,19 @@ function drawChart() {
     chart.summary.textContent =
       `${lines.length} device${lines.length === 1 ? "" : "s"} · range ${formatValue(unit, low)}–${formatValue(unit, high)}`;
   } else {
-    const unit = UNIT[view];
-    chart.summary.textContent =
-      `Now ${formatValue(unit, latestValues[0] ?? average)} · avg ${formatValue(unit, average)} · low ${formatValue(unit, low)} · high ${formatValue(unit, high)}`;
+    const unit = unitFor(view);
+    if (cores) {
+      const now = lines.map(line => {
+        const last = data[line.key].filter(entry => Number.isFinite(entry.value)).at(-1)?.value;
+        return Number.isFinite(last) ? formatValue(unit, last) : "—";
+      });
+      chart.summary.textContent =
+        `${cores} cores · now ${now.join(" · ")} · avg ${formatValue(unit, average)} · peak ${formatValue(unit, high)}`;
+    } else {
+      chart.summary.textContent =
+        `Now ${formatValue(unit, latestValues[0] ?? average)} · avg ${formatValue(unit, average)} · low ${formatValue(unit, low)} · high ${formatValue(unit, high)}`;
+    }
+    if (capped) chart.summary.textContent += ` · ${formatValue(unit, memoryTotal)} max`;
   }
   const times = lines.flatMap(line => data[line.key].map(entry => entry.at));
   const minutes = (Math.max(...times) - Math.min(...times)) / 60000;
@@ -379,9 +430,14 @@ function drawChart() {
     : `${count} checks over the last ${minutes < 1 ? "minute" : `${Math.round(minutes)} min`}.`;
 }
 
+function showMax(show) {
+  chartMax.hidden = !show;
+  chartMax.textContent = show ? `${Math.round(memoryTotal)} MiB installed · top line is the maximum` : "";
+}
+
 function drawPills(lines, data) {
   for (const line of lines) {
-    const unit = UNIT[line.key];
+    const unit = unitFor(line.key);
     const values = data[line.key].map(entry => entry.value).filter(value => Number.isFinite(value));
     const pill = document.createElement("div");
     pill.className = `chart-pill series-${line.key}`;

@@ -240,10 +240,14 @@ fn a_history_row_keeps_every_series_key() {
         portfolio: Some(80),
         cpu: Some(12.5),
         ram: Some(250),
+        cores: Some(vec![3.0, 6.0, 9.0, 12.0]),
     };
     assert_eq!(
         serde_json::to_value(row).unwrap(),
-        serde_json::json!({"at": 30, "jetkvm": 4, "muse": null, "portfolio": 80, "cpu": 12.5, "ram": 250})
+        serde_json::json!({
+            "at": 30, "jetkvm": 4, "muse": null, "portfolio": 80, "cpu": 12.5, "ram": 250,
+            "cores": [3.0, 6.0, 9.0, 12.0]
+        })
     );
 }
 

@@ -95,7 +95,7 @@ impl Reading {
 
 /// One reading of every plotted series. The Pi remembers them so a fresh tab
 /// has a graph without waiting for the next poll to arrive.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Serialize)]
 pub(super) struct Sample {
     pub(super) at: u64,
     pub(super) jetkvm: Option<u64>,
@@ -103,17 +103,21 @@ pub(super) struct Sample {
     pub(super) portfolio: Option<u64>,
     pub(super) cpu: Option<f32>,
     pub(super) ram: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) cores: Option<Vec<f32>>,
 }
 
 impl Sample {
     fn of(status: &Status) -> Self {
+        let host = status.host.as_ref();
         Self {
             at: epoch(),
             jetkvm: status.ping_probe.and_then(|probe| probe.latency_ms),
             muse: status.muse_ping_probe.and_then(|probe| probe.latency_ms),
             portfolio: status.website_probe.and_then(|probe| probe.latency_ms),
-            cpu: status.host.and_then(|host| host.cpu_percent),
-            ram: status.host.and_then(|host| host.memory_used_mib),
+            cpu: host.and_then(|host| host.cpu_percent),
+            ram: host.and_then(|host| host.memory_used_mib),
+            cores: host.and_then(|host| host.cores.clone()),
         }
     }
 }
@@ -123,9 +127,12 @@ pub(super) struct History {
     pub(super) samples: Vec<Sample>,
 }
 
-#[derive(Clone, Copy, Default, Serialize)]
+#[derive(Clone, Default, Serialize)]
 pub(super) struct Host {
     pub(super) cpu_percent: Option<f32>,
+    // One reading per core, in /proc/stat order, once two samples exist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) cores: Option<Vec<f32>>,
     pub(super) memory_used_mib: Option<u64>,
     pub(super) memory_total_mib: Option<u64>,
     pub(super) uptime_seconds: Option<u64>,
@@ -137,10 +144,13 @@ struct Cpu {
     idle: u64,
 }
 
+/// The most cores the dashboard will plot. The Pi has four.
+const MAX_CORES: usize = 8;
+
 impl Cpu {
-    fn parse(stat: &str) -> Option<Self> {
-        let mut fields = stat.lines().next()?.split_whitespace();
-        if fields.next()? != "cpu" {
+    fn parse_line(line: &str) -> Option<Self> {
+        let mut fields = line.split_whitespace();
+        if !fields.next()?.starts_with("cpu") {
             return None;
         }
         // Exclude guest time, which is already included in user/nice.
@@ -154,6 +164,14 @@ impl Cpu {
             total: values.into_iter().try_fold(0u64, u64::checked_add)?,
             idle,
         })
+    }
+
+    /// The aggregate first line and one entry per core line that follows it.
+    fn parse(stat: &str) -> Option<(Self, Vec<Self>)> {
+        let mut lines = stat.lines();
+        let total = Self::parse_line(lines.next()?)?;
+        let cores = lines.take(MAX_CORES).map_while(Self::parse_line).collect();
+        Some((total, cores))
     }
 
     fn percent(self, old: Self) -> Option<f32> {
@@ -180,7 +198,13 @@ fn memory(info: &str) -> Option<(u64, u64)> {
     ))
 }
 
-fn host_sample(previous: Option<Cpu>) -> (Option<Cpu>, Host) {
+/// One tick's CPU counters, kept so the next tick can difference them.
+struct Counters {
+    total: Cpu,
+    cores: Vec<Cpu>,
+}
+
+fn host_sample(previous: Option<Counters>) -> (Option<Counters>, Host) {
     let proc = |path| std::fs::read_to_string(path).ok();
     let cpu = proc("/proc/stat").as_deref().and_then(Cpu::parse);
     let mem = proc("/proc/meminfo").as_deref().and_then(memory);
@@ -192,10 +216,23 @@ fn host_sample(previous: Option<Cpu>) -> (Option<Cpu>, Host) {
             .parse()
             .ok()
     });
+    let (total, cores) = match (&cpu, &previous) {
+        (Some((new, new_cores)), Some(old)) if new_cores.len() == old.cores.len() => {
+            let per_core = new_cores
+                .iter()
+                .zip(&old.cores)
+                .map(|(new, old)| new.percent(*old))
+                .collect::<Option<Vec<f32>>>();
+            (new.percent(old.total), per_core)
+        }
+        (Some((_, _)), _) => (None, None),
+        (None, _) => (None, None),
+    };
     (
-        cpu,
+        cpu.map(|(total, cores)| Counters { total, cores }),
         Host {
-            cpu_percent: cpu.zip(previous).and_then(|(new, old)| new.percent(old)),
+            cpu_percent: total,
+            cores: cores.filter(|cores| !cores.is_empty()),
             memory_used_mib: mem.map(|v| v.0),
             memory_total_mib: mem.map(|v| v.1),
             uptime_seconds: uptime,
@@ -275,7 +312,7 @@ impl Probes {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .iter()
-                .copied()
+                .cloned()
                 .collect(),
         }
     }
@@ -355,7 +392,11 @@ impl Probes {
         timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
         loop {
             timer.tick().await;
-            let host = tokio::task::spawn_blocking(move || (host_sample(previous), read_muse()));
+            let prior = previous.take();
+            let host = tokio::task::spawn_blocking(move || {
+                let (counters, host) = host_sample(prior);
+                (counters, host, read_muse())
+            });
             let (_, _, _, _, sample) = tokio::join!(
                 self.run(Target::Website),
                 self.run(Target::Jetkvm),
@@ -363,8 +404,8 @@ impl Probes {
                 self.run(Target::Muse),
                 host
             );
-            if let Ok(((cpu, host), muse)) = sample {
-                previous = cpu;
+            if let Ok((counters, host, muse)) = sample {
+                previous = counters;
                 self.tx.send_modify(|s| {
                     s.host = Some(host);
                     s.muse = muse;
@@ -439,6 +480,7 @@ mod tests {
             });
             s.host = Some(Host {
                 cpu_percent: Some(7.5),
+                cores: Some(vec![1.0, 2.0, 3.0, 4.0]),
                 memory_used_mib: Some(250),
                 memory_total_mib: Some(415),
                 uptime_seconds: None,
@@ -450,6 +492,7 @@ mod tests {
         assert_eq!(rows[0].jetkvm, Some(4));
         assert_eq!(rows[0].cpu, Some(7.5));
         assert_eq!(rows[0].ram, Some(250));
+        assert_eq!(rows[0].cores.as_deref(), Some(&[1.0, 2.0, 3.0, 4.0][..]));
         assert_eq!(rows[0].muse, None);
         assert_eq!(rows[0].portfolio, None);
         for _ in 0..HISTORY_LEN + 5 {
@@ -462,8 +505,24 @@ mod tests {
 
     #[test]
     fn linux_host_measurements() {
-        let a = Cpu::parse("cpu  20 0 10 30 40 0 0 0 987 0\ncpu0 0").unwrap();
-        let b = Cpu::parse("cpu  30 0 20 80 70 0 0 0 999 0").unwrap();
+        let (a, a_cores) = Cpu::parse("cpu  20 0 10 30 40 0 0 0 987 0\ncpu0 0 0 0 0 0").unwrap();
+        let (b, _) = Cpu::parse("cpu  30 0 20 80 70 0 0 0 999 0").unwrap();
+        let (aggregate, cores) = Cpu::parse(
+            "cpu  20 0 10 30 40 0 0 0 987 0\ncpu0 5 0 5 10 10 0 0 0 0 0\ncpu1 5 0 5 10 10 0 0 0 0 0\nintr 1",
+        )
+        .unwrap();
+        assert_eq!(a_cores.len(), 1);
+        let (next, next_cores) = Cpu::parse(
+            "cpu  30 0 20 80 70 0 0 0 999 0\ncpu0 15 0 5 10 10 0 0 0 0 0\ncpu1 5 0 5 30 10 0 0 0 0 0\nintr 1",
+        )
+        .unwrap();
+        let per_core: Vec<Option<f32>> = next_cores
+            .iter()
+            .zip(&cores)
+            .map(|(new, old)| new.percent(*old))
+            .collect();
+        assert_eq!(per_core, [Some(100.0), Some(0.0)]);
+        assert_eq!(next.percent(aggregate), Some(20.0));
         assert_eq!(b.percent(a), Some(20.0));
         assert_eq!(b.percent(b), None);
         assert_eq!(a.percent(b), None);

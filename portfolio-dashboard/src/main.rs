@@ -96,7 +96,7 @@ enum JetKvm {
     Reachable,
     Unavailable,
 }
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Serialize)]
 struct Status {
     website: Website,
     jetkvm: JetKvm,
@@ -470,7 +470,7 @@ fn app_with(state: App, trust: Trust) -> Router {
             "/api/status",
             get(|State(app): State<App>| async move {
                 Json(Snapshot {
-                    status: app.status.borrow().fresh(),
+                    status: app.status.borrow().clone().fresh(),
                     pi_machine: app.pi_machine,
                     pi_ssh_user: app.pi_ssh_user,
                     jetkvm_ip: app.probes.as_ref().map(|probes| probes.jetkvm_ip()),
