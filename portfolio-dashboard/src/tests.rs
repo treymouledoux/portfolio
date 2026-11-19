@@ -556,6 +556,33 @@ async fn one_document_carries_both_views_and_messages_swap_in_as_a_fragment() {
 }
 
 #[tokio::test]
+async fn every_asset_the_shell_references_is_served() {
+    let shell = shell(VIEW_OVERVIEW, "").0;
+    let assets: Vec<&str> = shell
+        .split('"')
+        .filter(|value| {
+            value.starts_with('/') && (value.ends_with(".js") || value.ends_with(".css"))
+        })
+        .collect();
+    assert!(
+        assets.contains(&"/app.js")
+            && assets.contains(&"/dashboard.js")
+            && assets.contains(&"/messages.js")
+            && assets.contains(&"/passkey.js")
+            && assets.contains(&"/hold-delete.js")
+    );
+    for path in assets {
+        assert_eq!(
+            call("GET", path, &[("tailscale-user-login", OWNER)])
+                .await
+                .status(),
+            StatusCode::OK,
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn gateway_identity_reaches_handlers_only_after_the_peer_lookup() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let path = std::path::PathBuf::from("/tmp")

@@ -605,6 +605,15 @@ fn app_with(state: App, trust: Trust) -> Router {
             }),
         )
         .route(
+            "/app.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    include_str!("app.js"),
+                )
+            }),
+        )
+        .route(
             "/api/status",
             get(|State(app): State<App>| async move {
                 Json(Snapshot {
