@@ -8,11 +8,11 @@ The broker persists the public credential and its signature counter in the dedic
 
 ## Message counts, read status and downloads
 
-The Messages tab loads its count from a separate, sandboxed reader-only frame. Each reader sees the total number of complete submissions and their own unread count. Existing submissions start unread. Unlock the private inbox with your passkey, then use **Mark read** or **Mark unread** on a message. Filtering and exporting leave read status unchanged.
+The Messages tab loads its count from a separate, sandboxed reader-only frame. Each reader sees the total number of complete submissions and their own unread count. Existing submissions start unread. Reading and filtering need no passkey. Use **Unlock with passkey** on the Messages lock control (or the passkey card on Settings), then use **Mark read** or **Mark unread** on a message. Filtering and exporting leave read status unchanged.
 
 The inbox systemd drop-in provisions `/var/lib/portfolio-inbox-read` with mode 0700. The web service records read status as empty marker files keyed by digests of the reader login and the stored JSON line. Message bodies and addresses stay in the original archive. Deleting a message removes it from future counts and exports. Its digest marker may remain in the reader's state directory. Reinstall the drop-in and restart the service when upgrading a read-only inbox to this version. The protected environment's `DASHBOARD_ADMIN_ORIGIN` must name the private Serve origin for the inbox passkey and same-origin actions.
 
-**Export JSON** downloads the archive from the unlocked private inbox. The download streams sender name, address, timestamp and message text from a single archived file generation at a fixed byte length. The browser saves a local copy. Concurrent submission arrivals and deletion replacements belong to later exports.
+**Export JSON** downloads the archive from the private inbox; it needs no passkey session. The download streams sender name, address, timestamp and message text from a single archived file generation at a fixed byte length. The browser saves a local copy. Concurrent submission arrivals and deletion replacements belong to later exports.
 
 ## Install on the Pi
 

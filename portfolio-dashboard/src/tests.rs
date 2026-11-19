@@ -268,7 +268,7 @@ async fn omitting_the_optional_pi_label_preserves_status() {
 }
 
 #[tokio::test]
-async fn inbox_requires_a_reader_and_exposes_only_a_lock_screen_to_top_level_navigation() {
+async fn inbox_requires_a_reader_and_exposes_only_a_same_origin_document() {
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
         jetkvm: JetKvm::Reachable,
@@ -336,10 +336,7 @@ async fn inbox_requires_a_reader_and_exposes_only_a_lock_screen_to_top_level_nav
             );
             assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
             let body = to_bytes(response.into_body(), 65536).await.unwrap();
-            assert_eq!(
-                body.as_ref(),
-                shell(VIEW_MESSAGES, &inbox::locked_fragment()).0.as_bytes()
-            );
+            assert_eq!(body.as_ref(), b"fixture");
         } else {
             assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         }
@@ -487,12 +484,14 @@ async fn one_document_carries_both_views_and_messages_swap_in_as_a_fragment() {
     assert!(overview.contains(r#"<a href="/messages" data-view="messages">"#));
     assert!(overview.contains(r#"aria-current="page">Overview</a>"#));
     assert!(!overview.contains("{{"));
-    let locked = shell(VIEW_MESSAGES, &inbox::locked_fragment()).0;
-    assert!(locked.contains(r#"<section id="view-overview" aria-label="Overview" hidden>"#));
-    assert!(locked.contains(r#"<section id="view-messages" aria-label="Messages">"#));
-    assert!(locked.contains(r#"<a href="/messages" data-view="messages" aria-current="page">"#));
-    assert!(locked.contains(r#"<title>Messages · Tailnet dashboard</title>"#));
-    assert!(locked.contains(r#"id="inbox-locked""#) && !locked.contains("{{"));
+    // The messages view needs no session; the passkey panel lives in Settings.
+    let messages = shell(VIEW_MESSAGES, "").0;
+    assert!(messages.contains(r#"<section id="view-overview" aria-label="Overview" hidden>"#));
+    assert!(messages.contains(r#"<section id="view-messages" aria-label="Messages">"#));
+    assert!(messages.contains(r#"<a href="/messages" data-view="messages" aria-current="page">"#));
+    assert!(messages.contains(r#"<title>Messages · Tailnet dashboard</title>"#));
+    assert!(!messages.contains("{{") && !messages.contains("/messages/passkey"));
+    assert!(messages.contains(r#"id="passkey-panel""#));
 
     let (_, status) = watch::channel(Status::initial());
     let router = Router::new()
@@ -538,7 +537,7 @@ async fn one_document_carries_both_views_and_messages_swap_in_as_a_fragment() {
             .await
             .unwrap()
             .as_ref(),
-        inbox::locked_fragment().as_bytes()
+        b"fixture"
     );
     // A top-level navigation never receives a bare fragment.
     let mut request = Request::builder().uri("/messages/view");
@@ -782,17 +781,16 @@ async fn authentication_api_allows_configured_readers_and_rejects_cross_origin_r
             "private, no-store"
         );
     }
-    for (user, status) in [
-        (OWNER, StatusCode::OK),
-        ("reader@example.test", StatusCode::OK),
-    ] {
+    // Passkey management moved to the Settings view; the old address follows it.
+    for user in [OWNER, "reader@example.test"] {
         let req = Request::builder()
             .uri("/messages/passkey")
             .header("tailscale-user-login", user)
             .body(Body::empty())
             .unwrap();
         let response = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), status);
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers()[header::LOCATION], "/settings");
         assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
     }
 }
@@ -848,7 +846,7 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
             "same-origin",
             "document",
             "",
-            "no",
+            "yes",
         ),
         (
             OWNER,
@@ -901,6 +899,9 @@ async fn settings_is_a_view_for_a_viewer() {
     assert!(page.contains("id=\"view-settings\""));
     assert!(page.contains("Settings · Tailnet dashboard"));
     assert!(page.contains("id=\"webterm\""));
+    // Every passkey control lives here; nothing sends the owner elsewhere.
+    assert!(page.contains("id=\"passkey-panel\""));
+    assert!(!page.contains("/messages/passkey"));
 }
 
 /// The owner actions sit behind the same origin and passkey rules as the

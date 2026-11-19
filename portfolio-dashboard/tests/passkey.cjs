@@ -47,9 +47,9 @@ async function run() {
     await context.route("**/*", async route => {
       const url = new URL(route.request().url());
       assert.equal(url.origin, origin);
-      if (url.pathname === "/messages")
-        return route.fulfill({ contentType: "text/html", body: session ? "<h1>Unlocked inbox</h1>" : '<!doctype html><section id="inbox-locked">' + src("passkey-panel.html") +
-          '</section><script src="/passkey.js" defer></script>' });
+      if (url.pathname === "/settings")
+        return route.fulfill({ contentType: "text/html", body: '<!doctype html><h1>Settings</h1>' +
+          src("passkey-panel.html") + '<script src="/passkey.js" defer></script>' });
       if (url.pathname === "/passkey.js")
         return route.fulfill({ contentType: "text/javascript", body: src("passkey.js") });
       assert.equal(route.request().method(), "POST");
@@ -81,34 +81,34 @@ async function run() {
       protocol:"ctap2",transport:"internal",hasResidentKey:true,
       hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true
     }});
-    await page.goto(origin + "/messages");
+    await page.goto(origin + "/settings");
     await page.getByRole("button", {name:"Set up a passkey"}).click();
     await page.getByText("Passkey registered.", {exact:false}).waitFor();
     assert.equal(session, undefined);
-    await page.getByRole("button", {name:"Sign in with passkey"}).click();
-    await page.getByRole("heading", {name:"Unlocked inbox"}).waitFor();
-    assert.equal(page.url(), origin + "/messages");
+    await page.getByRole("button", {name:"Unlock with passkey"}).click();
+    await page.getByText("Passkey verified.", {exact:false}).waitFor();
+    assert.equal(page.url(), origin + "/settings");
     assert.equal(context.pages().length, 1);
-    assert.deepEqual(observed,["enrollment","enroll-options","enroll-finish","login-options","login-finish"]);
+    assert.deepEqual(observed.slice().sort(), ["enroll-finish","enroll-options","enrollment","login-finish","login-options","session"]);
 
     // A failed enrollment check must leave setup reachable: the broker, not the
     // page, decides whether a window is open.
     await context.unroute("**/*");
     await context.route("**/*", route => {
       const url = new URL(route.request().url());
-      if (url.pathname === "/messages")
-        return route.fulfill({ contentType: "text/html", body: '<!doctype html><section id="inbox-locked">' +
-          src("passkey-panel.html") + '</section><script src="/passkey.js" defer></script>' });
+      if (url.pathname === "/settings")
+        return route.fulfill({ contentType: "text/html", body: '<!doctype html><h1>Settings</h1>' +
+          src("passkey-panel.html") + '<script src="/passkey.js" defer></script>' });
       if (url.pathname === "/passkey.js")
         return route.fulfill({ contentType: "text/javascript", body: src("passkey.js") });
       return route.fulfill({ status: 503, json: { error: "unavailable" } });
     });
     const degraded = await context.newPage();
     degraded.setDefaultTimeout(12000);
-    await degraded.goto(origin + "/messages");
+    await degraded.goto(origin + "/settings");
     await degraded.waitForFunction(() => document.getElementById("passkey-enroll").disabled === false);
     assert.equal(await degraded.getByRole("button", { name: "Set up a passkey" }).getAttribute("data-closed"), null);
-    console.log("Chromium virtual passkey registration, signed assertion and same-tab inbox unlock passed.");
+    console.log("Chromium virtual passkey registration, signed assertion and Settings unlock passed.");
   } finally {
     await browser.close();
     child.stdin.end();

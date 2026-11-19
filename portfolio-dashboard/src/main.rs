@@ -66,6 +66,7 @@ pub(crate) fn shell(view: &str, messages: &str) -> Html<String> {
             .replace("{{OVERVIEW_CURRENT}}", current(VIEW_OVERVIEW))
             .replace("{{MESSAGES_CURRENT}}", current(VIEW_MESSAGES))
             .replace("{{SETTINGS_CURRENT}}", current(VIEW_SETTINGS))
+            .replace("{{PASSKEY_PANEL}}", include_str!("passkey-panel.html"))
             .replace("{{MESSAGES}}", messages),
     )
 }
@@ -257,10 +258,7 @@ async fn protect(
 ) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
-    // Exactly the body the single-page shell swaps into its Messages view.
-    let fragment = path == "/messages/view";
     let inbox_path = inbox || path.starts_with("/messages/");
-    let auth_api = path.starts_with("/messages/auth/");
     let destructive = path == "/messages/delete-all"
         || path.starts_with("/messages/action/")
         || matches!(path, "/messages/auth/arm" | "/messages/auth/cancel");
@@ -312,11 +310,15 @@ async fn protect(
     // refused until DASHBOARD_ADMIN_ORIGIN is set.
     let unconfigured = (admin_path || settings_path) && app.admin_origin.is_none();
     let denied = !allowed || foreign_request || wrong_origin || wrong_destination || unconfigured;
-    // The login and enrollment ceremony stay available before unlock. Never
-    // open the archive to render a locked page.
-    let needs_session = (inbox_path && !auth_api && path != "/messages/passkey")
-        || admin_path
-        || (settings_path && req.method() != Method::GET);
+    // Reading and exporting need an approved reader, not a passkey; the archive
+    // opens by default. Only actions that change something ask for a verified
+    // session, which is what the page's lock control grants for fifteen minutes.
+    let inbox_write = path == "/messages/delete-all"
+        || path.starts_with("/messages/action/")
+        || path.starts_with("/messages/read/")
+        || path.starts_with("/messages/unread/")
+        || matches!(path, "/messages/auth/arm" | "/messages/auth/cancel");
+    let needs_session = inbox_write || admin_path || (settings_path && req.method() != Method::GET);
     // Handlers and the passkey broker read the identity this connection already
     // proved. On the gateway that value came from the peer lookup, never from
     // the client, so it is settled before anyone reads the header.
@@ -331,15 +333,9 @@ async fn protect(
     let mut response = if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
     } else if needs_session && !inbox_actions::unlocked(req.headers()).await {
-        // A locked inbox is a server-rendered state inside the page, not a
-        // reload and not an error the browser has to explain.
-        if inbox {
-            shell(VIEW_MESSAGES, &inbox::locked_fragment()).into_response()
-        } else if fragment {
-            Html(inbox::locked_fragment()).into_response()
-        } else {
-            StatusCode::UNAUTHORIZED.into_response()
-        }
+        // A locked change is refused; the page re-renders with its lock
+        // control, so nothing has to reload or explain an error.
+        StatusCode::UNAUTHORIZED.into_response()
     } else {
         next.run(req).await
     };
@@ -431,7 +427,11 @@ fn app_with(state: App, trust: Trust) -> Router {
         .route("/messages/read/{id}", axum::routing::post(inbox::mark))
         .route("/messages/unread/{id}", axum::routing::post(inbox::mark))
         .route("/messages/delete-all", get(inbox_actions::preview_all))
-        .route("/messages/passkey", get(inbox_actions::passkey_page))
+        // Passkey management lives on the Settings view now.
+        .route(
+            "/messages/passkey",
+            get(|| async { axum::response::Redirect::temporary("/settings") }),
+        )
         .route(
             "/messages/auth/{step}",
             axum::routing::post(inbox_actions::auth)

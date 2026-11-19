@@ -28,6 +28,8 @@
     if (!assertion) throw new Error("The passkey request was cancelled.");
     const finished = await post("/messages/auth/login-finish", {flow, credential: assertion.toJSON()});
     if (!finished.ok) throw new Error("That passkey was not accepted.");
+    // The passkey card reports the session this control just opened.
+    window.PasskeyPanel?.refresh?.();
   }
 
   // ---- Telemetry ---------------------------------------------------------

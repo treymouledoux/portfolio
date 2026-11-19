@@ -24,7 +24,7 @@ function documentFor() {
   const entries = `<div id="inbox-notice" role="status"></div>
     <form class="mark-form" method="post" action="/messages/read/${id}?end=34"><button disabled>Mark as read</button></form>
     ${form("delete", id, "Remove message")}${form("delete-all", "", "Remove all messages")}
-    <button id="inbox-lock" type="button" disabled>Lock inbox</button>`;
+    <button id="inbox-lock" type="button" data-state="unlocked" disabled>Lock inbox</button>`;
   // app.js is served empty here, so the inbox falls back to a document reload.
   return source("app.html").replace("{{TITLE}}", "Messages")
     .replace("{{OVERVIEW_HIDDEN}}", " hidden").replace("{{MESSAGES_HIDDEN}}", "")
@@ -185,13 +185,10 @@ async function run() {
     assert.equal(context.pages().length, 1);
     await page.getByRole("button", {name:"Lock inbox"}).click();
     await page.getByRole("heading", {name:"Locked"}).waitFor();
+    // An expired session drops the page back to its locked controls.
     const expired = await fixture(browser);
     expired.expire();
-    await expired.page.evaluate(() => {
-      window.dispatchEvent(new PageTransitionEvent("pagehide", {persisted:true}));
-      if (!document.getElementById("inbox-view").hidden) throw Error("history exposed private content");
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await expired.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expired.page.getByRole("heading", {name:"Locked"}).waitFor();
     assert.equal(expired.page.url(), origin + "/messages");
     console.log("PASS: inert without JS, two-step target binding, red progress, interruption, touch and keyboard, five-second commits");

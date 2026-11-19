@@ -124,19 +124,14 @@ fn page_head(control: &str) -> String {
     )
 }
 
-/// The Messages view when no passkey session is active. It is served inside
-/// the single-page shell and swapped in place after the session ends.
-pub(super) fn locked_fragment() -> String {
-    let panel = include_str!("passkey-panel.html")
-        .replace(
-            "Checking your session…",
-            "This inbox is locked. Unlock it to view and manage contact submissions.",
-        )
-        .replace("Sign in with passkey", "Unlock with passkey");
-    format!(
-        r#"<div id="inbox-view">{head}<section id="inbox-locked">{panel}<noscript>Enable JavaScript to unlock with a passkey.</noscript></section></div>"#,
-        head = page_head(""),
-    )
+/// The archive itself is readable by default; this control is the only way to
+/// open the fifteen-minute session that lets the owner change anything.
+fn lock_control(unlocked: bool) -> &'static str {
+    if unlocked {
+        r#"<div class="lock-control"><button id="inbox-lock" type="button" data-state="unlocked" disabled>Lock inbox</button><p class="lock-note">Unlocked: marking, removal and removal of all messages.</p></div>"#
+    } else {
+        r#"<div class="lock-control"><button id="inbox-lock" type="button" data-state="locked" disabled>Unlock with passkey</button><p class="lock-note">Locked: viewing and export only.</p></div>"#
+    }
 }
 
 fn remove_form(operation: &str, id: &str, label: &str) -> String {
@@ -145,6 +140,16 @@ fn remove_form(operation: &str, id: &str, label: &str) -> String {
 <button class="hold-delete" type="button" data-label="{label}" aria-describedby="help-{operation}-{id}" disabled><span>{label}</span></button>
 <input type="hidden" name="hold" disabled><small id="help-{operation}-{id}" class="hold-help" role="status"></small></form>"#
     )
+}
+
+/// What this request may do with the archive. Reading is always allowed; the
+/// controls that change something depend on a verified passkey session and the
+/// administrator role.
+#[derive(Clone, Copy)]
+struct Roles {
+    admin: bool,
+    unlocked: bool,
+    can_mark: bool,
 }
 
 fn render_card(entry: &Entry, html: &mut String, admin: bool, read: Option<bool>, can_mark: bool) {
@@ -184,10 +189,9 @@ fn render_card(entry: &Entry, html: &mut String, admin: bool, read: Option<bool>
 fn render(
     page: Page,
     paginated: bool,
-    admin: bool,
+    roles: Roles,
     unread_only: bool,
     dir: &Path,
-    can_mark: bool,
     (total, unread): (u64, u64),
 ) -> io::Result<String> {
     let mut html = String::new();
@@ -208,7 +212,7 @@ fn render(
         } else {
             r#"<p class="empty">No messages yet.</p>"#
         });
-    } else if admin && !unread_only {
+    } else if roles.admin && !unread_only {
         html.push_str(r#"<div class="bulk">"#);
         html.push_str(&remove_form("delete-all", "", "Remove all messages"));
         html.push_str("</div>");
@@ -217,9 +221,9 @@ fn render(
         render_card(
             entry,
             &mut html,
-            admin,
+            roles.admin,
             Some(reader::was_read(dir, &entry.id)?),
-            can_mark,
+            roles.can_mark,
         );
     }
     html.push_str(r#"<nav class="page-links" aria-label="Message pages">"#);
@@ -246,7 +250,7 @@ fn render(
     // second archive read, and the actions stay server-rendered.
     Ok(format!(
         r#"<div id="inbox-view" data-unread="{unread}" data-total="{total}">{head}<div id="inbox-notice" role="status"></div>{html}</div>"#,
-        head = page_head(r#"<button id="inbox-lock" type="button" disabled>Lock inbox</button>"#),
+        head = page_head(lock_control(roles.unlocked)),
     ))
 }
 
@@ -293,7 +297,10 @@ async fn fragment(
     let Ok(dir) = reader::owner_dir(&headers) else {
         return Err(Box::new(StatusCode::FORBIDDEN.into_response()));
     };
-    let can_mark = app.admin_origin.is_some();
+    // Reading needs no passkey, so the page opens locked: a verified session
+    // only adds the owner's marking and removal controls.
+    let unlocked = inbox_actions::unlocked(&headers).await;
+    let can_mark = unlocked && app.admin_origin.is_some();
     let admin = can_mark
         && single_header(&headers, "tailscale-user-login")
             .is_some_and(|login| app.inbox_admins.contains(login));
@@ -307,10 +314,13 @@ async fn fragment(
         render(
             page,
             before.is_some(),
-            admin,
+            Roles {
+                admin,
+                unlocked,
+                can_mark,
+            },
             unread_only,
             &dir,
-            can_mark,
             counts,
         )
     })
@@ -379,23 +389,31 @@ mod tests {
         let html = render(
             first,
             false,
-            false,
+            Roles {
+                admin: false,
+                unlocked: true,
+                can_mark: true,
+            },
             false,
             Path::new("/does-not-exist"),
-            true,
             (16, 16),
         )
         .unwrap();
+        assert!(html.contains(r#"data-state="unlocked""#));
+        assert!(html.contains("Lock inbox"));
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt; &amp; done"));
         assert!(!html.contains("<img"));
         assert!(!html.contains("/messages/action/"));
         let html = render(
             read_page(Cursor::new(&data), None).unwrap(),
             false,
-            true,
+            Roles {
+                admin: true,
+                unlocked: true,
+                can_mark: true,
+            },
             false,
             Path::new("/does-not-exist"),
-            true,
             (16, 16),
         )
         .unwrap();
@@ -405,9 +423,22 @@ mod tests {
         );
         assert!(html.contains(r#"class="mark-form" method="post""#));
         assert!(!html.contains(r#"target="_blank""#));
-        let locked = locked_fragment();
+        // A locked inbox still renders the messages, with no controls to change them.
+        let locked = render(
+            read_page(Cursor::new(&data), None).unwrap(),
+            false,
+            Roles {
+                admin: false,
+                unlocked: false,
+                can_mark: false,
+            },
+            false,
+            Path::new("/does-not-exist"),
+            (16, 16),
+        )
+        .unwrap();
         assert!(locked.contains("Unlock with passkey"));
-        assert!(locked.contains(r#"id="inbox-locked""#));
+        assert!(locked.contains("message"));
         assert!(!locked.contains("mark-form") && !locked.contains("remove-form"));
         data.extend(self::line("new"));
         data.extend(b"{\"name\":");

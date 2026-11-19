@@ -1,10 +1,11 @@
-<section id="passkey-panel" aria-label="Passkey verification">
+<section id="passkey-panel" aria-label="Passkey access">
   <span class="passkey-badge" aria-hidden="true">
     <svg viewBox="0 0 24 24"><rect x="4.75" y="10.75" width="14.5" height="9.25" rx="2.5"/><path d="M8.6 10.75V8.1a3.4 3.4 0 0 1 6.8 0v2.65"/><path d="M12 14.6v1.6"/></svg>
   </span>
-  <p id="passkey-status" role="status" aria-live="polite">Checking your session…</p>
+  <p id="passkey-status" role="status" aria-live="polite">Checking your passkey session…</p>
   <div class="passkey-actions">
-    <button type="button" id="passkey-sign-in" disabled>Sign in with passkey</button>
+    <button type="button" id="passkey-sign-in" disabled>Unlock with passkey</button>
+    <button type="button" id="passkey-lock" hidden>Lock session</button>
     <button type="button" id="passkey-enroll" disabled>Set up a passkey</button>
   </div>
 </section>

@@ -1,14 +1,20 @@
 "use strict";
 
 (() => {
+  // Another control on the page may sign in on its own; init() then refreshes
+  // this panel's state instead of binding a second time.
+  let reread = () => {};
+
+  // The panel lives in Settings: it reports the session, signs in, locks and
+  // enrolls. Enrollment stays closed until a root operator opens a window.
   function init() {
     const panel = document.getElementById("passkey-panel");
     if (!panel || panel.dataset.bound === "true") return;
     panel.dataset.bound = "true";
-    const login = document.getElementById("passkey-sign-in");
+    const signIn = document.getElementById("passkey-sign-in");
+    const signOut = document.getElementById("passkey-lock");
     const enroll = document.getElementById("passkey-enroll");
     const status = document.getElementById("passkey-status");
-    const locked = document.getElementById("inbox-locked");
     // pending: the check has not answered yet; unknown: it failed. Only an
     // explicit "closed" hides setup, so a broker outage never blocks the one
     // path to first-time enrollment. The broker still refuses a real attempt.
@@ -23,6 +29,14 @@
         enroll.removeAttribute("title");
       }
     }
+
+    const request = step => fetch("/messages/auth/" + step, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
 
     async function post(endpoint, body = {}) {
       const response = await fetch("/messages/auth/" + endpoint, {
@@ -45,18 +59,22 @@
       return response.json();
     }
 
-    function authenticated() {
-      login.hidden = true;
-      enroll.hidden = true;
-      status.textContent = "Passkey verified.";
-      if (!locked) return;
-      // The inbox is a server fragment, so unlocking swaps it in place.
-      if (window.Dashboard) window.Dashboard.refreshMessages();
-      else window.location.reload();
+    function showLocked(text) {
+      signIn.hidden = false;
+      signIn.disabled = false;
+      signOut.hidden = true;
+      status.textContent = text ?? "Locked. Unlock to change settings, remove messages or open a terminal.";
+    }
+
+    function showUnlocked() {
+      signIn.hidden = true;
+      signOut.hidden = false;
+      signOut.disabled = false;
+      status.textContent = "Passkey verified. Owner actions stay available for fifteen minutes.";
     }
 
     async function verify(register) {
-      login.disabled = true;
+      signIn.disabled = true;
       enroll.disabled = true;
       try {
         const kind = register ? "enroll" : "login";
@@ -69,9 +87,9 @@
         if (register) {
           enroll.hidden = true;
           status.textContent = "Passkey registered. Sign in with it to verify it works.";
-          login.focus();
+          signIn.focus();
         } else {
-          authenticated();
+          showUnlocked();
         }
       } catch (error) {
         if (error.code === "closed") enrollment = "closed";
@@ -79,9 +97,28 @@
           ? "The passkey request was cancelled or timed out."
           : (error.message || "Passkey verification failed.");
       } finally {
-        login.disabled = false;
+        signIn.disabled = false;
         syncEnroll();
       }
+    }
+
+    async function lockSession() {
+      signOut.disabled = true;
+      try {
+        const response = await request("lock");
+        if (!response.ok && response.status !== 401 && response.status !== 403) throw Error();
+        showLocked("Session locked. Owner actions need the passkey again.");
+      } catch {
+        signOut.disabled = false;
+        status.textContent = "Couldn’t lock the session. Check your connection and try again.";
+      }
+    }
+
+    // Re-read the session after another control signed in on its own.
+    function refresh() {
+      request("session")
+        .then(response => { if (response.ok) showUnlocked(); else showLocked(); })
+        .catch(() => showLocked("Couldn’t check the passkey session. Check your connection and try again."));
     }
 
     if (window.top !== window.self || !window.isSecureContext ||
@@ -91,8 +128,11 @@
       status.textContent = "Open this private page in a current browser with passkey support.";
       return;
     }
-    login.addEventListener("click", () => verify(false));
+    signIn.addEventListener("click", () => verify(false));
+    signOut.addEventListener("click", lockSession);
     enroll.addEventListener("click", () => verify(true));
+    reread = refresh;
+    refresh();
     // The broker only accepts a first registration while a root operator has an
     // enrollment window open, so setup stays unavailable until it reports one.
     syncEnroll();
@@ -105,17 +145,9 @@
         enrollment = "unknown";
         syncEnroll();
       });
-    if (locked) {
-      login.disabled = false;
-      return;
-    }
-    post("session").then(authenticated).catch(() => {
-      login.disabled = false;
-      status.textContent = "Sign in with your dashboard passkey.";
-    });
   }
 
-  window.PasskeyPanel = { init };
+  window.PasskeyPanel = { init, refresh: () => reread() };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

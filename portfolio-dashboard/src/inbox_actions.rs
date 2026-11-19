@@ -117,10 +117,6 @@ async fn broker(cmd: Value) -> Result<Reply, ()> {
     .map_err(|_| ())?
 }
 
-fn document(content: String) -> Html<String> {
-    Html(include_str!("inbox-action.html").replace("{{CONTENT}}", &content))
-}
-
 pub(super) async fn unlocked(headers: &HeaderMap) -> bool {
     let (Some(user), Some(token)) = (
         single_header(headers, "tailscale-user-login"),
@@ -131,13 +127,6 @@ pub(super) async fn unlocked(headers: &HeaderMap) -> bool {
     broker(json!({"action":"session", "user":user,"session":token}))
         .await
         .is_ok_and(|reply| reply.ok)
-}
-
-pub(super) async fn passkey_page() -> Html<String> {
-    document(format!(
-        "<h1>Dashboard passkey</h1>{}<noscript>Enable JavaScript to use a passkey.</noscript>",
-        include_str!("passkey-panel.html")
-    ))
 }
 
 pub(super) async fn preview_all(headers: HeaderMap) -> Response {

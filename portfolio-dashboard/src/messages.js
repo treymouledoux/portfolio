@@ -1,15 +1,17 @@
 "use strict";
 
 (() => {
-  const sessionRequest = step => fetch("/messages/auth/" + step, {
+  // The archive is readable without a passkey; this requests the fifteen-minute
+  // owner session that the broker requires before anything changes.
+  const sessionRequest = (step, body) => fetch("/messages/auth/" + step, {
     method: "POST",
     credentials: "same-origin",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(body ?? {}),
   });
 
-  // A locked, expired or denied inbox is a server fragment now, so the view is
+  // A locked or expired session is a server-rendered state, so the view is
   // replaced in place instead of reloading the document.
   function reload() {
     if (window.Dashboard) window.Dashboard.refreshMessages();
@@ -19,6 +21,28 @@
   function notice(text) {
     const target = document.getElementById("inbox-notice");
     if (target) target.textContent = text;
+  }
+
+  async function unlockInbox(button) {
+    button.disabled = true;
+    try {
+      const options = await sessionRequest("login-options");
+      if (options.status === 404) throw new Error("No passkey is registered yet. Set one up in Settings.");
+      if (!options.ok) throw new Error("Unlocking is unavailable. Check your connection and try again.");
+      const { flow, publicKey } = await options.json();
+      const assertion = await navigator.credentials.get({
+        publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(publicKey),
+      });
+      if (!assertion) throw new Error("The passkey request was cancelled.");
+      const finished = await sessionRequest("login-finish", { flow, credential: assertion.toJSON() });
+      if (!finished.ok) throw new Error("That passkey was not accepted.");
+      reload();
+    } catch (error) {
+      button.disabled = false;
+      notice(error.name === "NotAllowedError"
+        ? "The passkey request was cancelled or timed out."
+        : (error.message || "Couldn’t unlock the inbox."));
+    }
   }
 
   function lockInbox(button) {
@@ -59,7 +83,8 @@
     if (lock && lock.dataset.bound !== "true") {
       lock.dataset.bound = "true";
       lock.disabled = false;
-      lock.addEventListener("click", () => lockInbox(lock));
+      const unlocked = lock.dataset.state === "unlocked";
+      lock.addEventListener("click", () => unlocked ? lockInbox(lock) : unlockInbox(lock));
     }
     for (const form of document.querySelectorAll(".mark-form")) {
       if (form.dataset.bound === "true") continue;
@@ -68,33 +93,24 @@
     }
   }
 
-  // The inbox is only readable while the passkey session lasts. Hide the
-  // rendered archive whenever the tab is away and restore it after a check.
-  function concealForBackground() {
-    const inboxView = document.getElementById("inbox-view");
-    if (inboxView) inboxView.hidden = true;
-  }
-
+  // Only an open session can lapse, and it lapses back to the locked view.
   let checking = false;
   async function checkSession() {
-    if (document.hidden || checking || !document.getElementById("inbox-lock")) return;
+    const lock = document.getElementById("inbox-lock");
+    if (!lock || lock.dataset.state !== "unlocked" || document.hidden || checking) return;
     checking = true;
     try {
-      if (!(await sessionRequest("session")).ok) { reload(); return; }
-      const inboxView = document.getElementById("inbox-view");
-      if (inboxView && !document.hidden) inboxView.hidden = false;
+      if (!(await sessionRequest("session")).ok) reload();
     } catch {
-      reload();
+      // Offline: keep showing what was already rendered.
     } finally {
       checking = false;
     }
   }
 
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) concealForBackground();
-    else checkSession();
+    if (!document.hidden) checkSession();
   });
-  window.addEventListener("pagehide", concealForBackground);
   setInterval(checkSession, 15000);
 
   window.MessageInbox = { init };
