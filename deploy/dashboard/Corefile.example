@@ -31,6 +31,29 @@ treymouledoux.me:53 {
         rcode NOERROR
         fallthrough
     }
+    template IN A {
+        match ^dashboard[.]treymouledoux[.]me[.]$
+        answer "{{ .Name }} 300 IN A 192.0.2.1"
+        fallthrough
+    }
+    template IN AAAA {
+        match ^dashboard[.]treymouledoux[.]me[.]$
+        answer "{{ .Name }} 300 IN AAAA 2001:db8::1"
+        fallthrough
+    }
+    # The public record for the dashboard name carries Cloudflare address hints
+    # and an ECH key, which Apple platforms follow and reach the public edge
+    # instead of this node. Suppress it for the same reason as the apex.
+    template IN HTTPS {
+        match ^dashboard[.]treymouledoux[.]me[.]$
+        rcode NOERROR
+        fallthrough
+    }
+    template IN SVCB {
+        match ^dashboard[.]treymouledoux[.]me[.]$
+        rcode NOERROR
+        fallthrough
+    }
     forward . /etc/portfolio-dns/public-resolv.conf
 }
 
