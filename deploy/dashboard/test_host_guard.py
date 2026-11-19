@@ -57,6 +57,15 @@ class HostGuard(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 guard.render("pilot", {**self.inventory, key: value})
 
+    def test_optional_ping_uses_only_the_existing_dashboard_kvm_target(self):
+        for stage in ("status-only", "pilot"):
+            self.assertNotIn("icmp type echo-request", guard.render(stage, self.inventory))
+            rules = guard.render(stage, self.inventory | {"jetkvm_ping": True})
+            self.assertIn('meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr 100.100.0.14 icmp type echo-request accept', rules)
+        for bad in ({"jetkvm_ping": "yes"}, {"jetkvm_ip": "fd7a:115c:a1e0::2", "jetkvm_ping": True}):
+            with self.assertRaises(ValueError):
+                guard.render("pilot", self.inventory | bad)
+
     def test_ipv6_kvm_stays_bound_to_its_exact_tailnet_address(self):
         rules = guard.render("pilot", {**self.inventory, "jetkvm_ip": "fd7a:115c:a1e0::17"})
         self.assertIn('oifname "tailscale0" ip6 daddr fd7a:115c:a1e0::17 tcp dport 443 accept', rules)

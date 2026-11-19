@@ -90,6 +90,11 @@ def render(stage, inventory):
     port = numeric_port(inventory, "jetkvm_port")
     family = "ip" if kvm.version == 4 else "ip6"
     kvm_rule = f'meta skuid "portfolio-dashboard" oifname "tailscale0" {family} daddr {kvm} tcp dport {port} accept'
+    ping = inventory.get("jetkvm_ping", False)
+    if not isinstance(ping, bool) or (ping and kvm.version != 4):
+        raise ValueError("jetkvm_ping requires a boolean and an IPv4 JetKVM target when enabled")
+    if ping:
+        kvm_rule += f'\n        meta skuid "portfolio-dashboard" oifname "tailscale0" ip daddr {kvm} icmp type echo-request accept'
     smtp = numeric_port(inventory, "smtp_port")
     if smtp not in (465, 587):
         raise ValueError("smtp_port must match the verified TLS submission port")

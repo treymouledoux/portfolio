@@ -1,3 +1,8 @@
+#[path = "inbox_reader.rs"]
+mod reader;
+pub(super) use reader::{badge, export, export_page, mark, mark_page};
+pub(super) const BADGE_CSP: &str = "default-src 'none'; style-src 'sha256-JPzapb25wJpQbOhKSaBgyUerOVDT64jnvhDFIu1MHI4='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+
 use super::*;
 use axum::extract::RawQuery;
 use ring::digest::{SHA256, digest};
@@ -14,7 +19,7 @@ const PAGE_SIZE: usize = 12;
 const MAX_RECORD: usize = 64 * 1024;
 const WINDOW: usize = 2 * MAX_RECORD + 2;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Submission {
     received_at: String,
     name: String,
@@ -31,6 +36,18 @@ pub(super) struct Entry {
 pub(super) struct Page {
     pub(super) entries: Vec<Entry>,
     older: Option<u64>,
+}
+
+fn record_id(line: &[u8]) -> String {
+    digest(&SHA256, line)
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn unavailable() -> Response {
+    (StatusCode::SERVICE_UNAVAILABLE, "Inbox unavailable.").into_response()
 }
 
 fn invalid() -> io::Error {
@@ -76,8 +93,7 @@ fn read_page(mut file: impl Read + Seek, before: Option<u64>) -> io::Result<Page
         if line.len() > MAX_RECORD {
             return Err(invalid());
         }
-        let hash = digest(&SHA256, line);
-        let id = hash.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        let id = record_id(line);
         entries.push(Entry {
             id,
             end: start + cursor as u64,
@@ -104,7 +120,15 @@ fn escape(value: &str, output: &mut String) {
 }
 
 pub(super) fn render_entry(entry: &Entry, html: &mut String, admin: bool) {
-    html.push_str("<article><h2 dir=\"auto\">");
+    render_card(entry, html, admin, None, false);
+}
+
+fn render_card(entry: &Entry, html: &mut String, admin: bool, read: Option<bool>, can_mark: bool) {
+    html.push_str("<article>");
+    if let Some(false) = read {
+        html.push_str(r#"<span class="eyebrow">Unread</span>"#);
+    }
+    html.push_str("<h2 dir=\"auto\">");
     escape(&entry.data.name, html);
     html.push_str("</h2><p class=\"meta\" dir=\"auto\">");
     escape(&entry.data.email, html);
@@ -113,39 +137,85 @@ pub(super) fn render_entry(entry: &Entry, html: &mut String, admin: bool) {
     html.push_str("</p><p class=\"message\" dir=\"auto\">");
     escape(&entry.data.message, html);
     html.push_str("</p>");
+    if let (true, Some(read)) = (can_mark, read) {
+        let (route, label) = if read {
+            ("unread", "Mark unread")
+        } else {
+            ("read", "Mark read")
+        };
+        html.push_str(&format!(r#"<a class="mark" href="/messages/{route}/{}?end={}" target="_blank" rel="noopener noreferrer">{label}</a>"#,entry.id,entry.end));
+    }
     if admin {
         html.push_str(&format!(r#"<a class="remove" href="/messages/action/delete/{}?end={}" target="_blank" rel="noopener noreferrer">Remove</a>"#, entry.id, entry.end));
     }
     html.push_str("</article>");
 }
 
-fn render(page: Page, paginated: bool, admin: bool) -> String {
+fn render(
+    page: Page,
+    paginated: bool,
+    admin: bool,
+    unread_only: bool,
+    dir: &Path,
+    can_mark: bool,
+) -> io::Result<String> {
     let mut html = String::new();
+    let all_current = if unread_only {
+        ""
+    } else {
+        r#" aria-current="page""#
+    };
+    let unread_current = if unread_only {
+        r#" aria-current="page""#
+    } else {
+        ""
+    };
+    html.push_str(&format!(r#"<nav aria-label="Message filters"><a href="/messages"{all_current}>All messages</a><a href="/messages?filter=unread"{unread_current}>Unread</a><a href="/messages/export" target="_blank" rel="noopener noreferrer">Export JSON</a></nav>"#));
     if page.entries.is_empty() {
-        html.push_str("<p>No messages yet.</p>");
-    } else if admin {
+        html.push_str(if unread_only {
+            "<p>No unread messages.</p>"
+        } else {
+            "<p>No messages yet.</p>"
+        });
+    } else if admin && !unread_only {
         html.push_str(r#"<p class="bulk"><a class="remove" href="/messages/delete-all" target="_blank" rel="noopener noreferrer">Remove all messages</a></p>"#);
     }
     for entry in &page.entries {
-        render_entry(entry, &mut html, admin);
+        render_card(
+            entry,
+            &mut html,
+            admin,
+            Some(reader::was_read(dir, &entry.id)?),
+            can_mark,
+        );
     }
     html.push_str("<nav aria-label=\"Message pages\">");
     if paginated {
-        html.push_str("<a href=\"/messages\">Newest messages</a>");
+        let url = if unread_only {
+            "/messages?filter=unread"
+        } else {
+            "/messages"
+        };
+        html.push_str(&format!(r#"<a href="{url}">Newest messages</a>"#));
     }
     if let Some(before) = page.older {
+        let filter = if unread_only {
+            "&amp;filter=unread"
+        } else {
+            ""
+        };
         html.push_str(&format!(
-            "<a href=\"/messages?before={before}\">Older messages</a>"
+            "<a href=\"/messages?before={before}{filter}\">Older messages</a>"
         ));
     }
     if admin {
         html.push_str(r#"<a href="/messages/passkey" target="_blank" rel="noopener noreferrer">Dashboard passkey</a>"#);
     }
     html.push_str("</nav>");
-    include_str!("messages.html").replace("{{ENTRIES}}", &html)
+    Ok(include_str!("messages.html").replace("{{ENTRIES}}", &html))
 }
 
-pub(super) fn read_snapshot(before: Option<u64>) -> io::Result<Page> {
+fn open_archive() -> io::Result<std::fs::File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -153,7 +223,11 @@ pub(super) fn read_snapshot(before: Option<u64>) -> io::Result<Page> {
     if !file.metadata()?.is_file() {
         return Err(invalid());
     }
-    read_page(file, before)
+    Ok(file)
+}
+
+pub(super) fn read_snapshot(before: Option<u64>) -> io::Result<Page> {
+    read_page(open_archive()?, before)
 }
 
 pub(super) async fn messages(
@@ -161,23 +235,43 @@ pub(super) async fn messages(
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let before = match query {
-        None => None,
-        Some(q) => match q
-            .strip_prefix("before=")
-            .and_then(|n| n.parse::<u64>().ok())
-        {
-            Some(offset) => Some(offset),
-            None => return StatusCode::BAD_REQUEST.into_response(),
-        },
+    let mut unread_only = false;
+    let mut before = None;
+    if let Some(query) = query {
+        for part in query.split('&') {
+            match part.split_once('=') {
+                Some(("before", n))
+                    if before.is_none() && n.bytes().all(|b| b.is_ascii_digit()) =>
+                {
+                    let Ok(offset) = n.parse::<u64>() else {
+                        return StatusCode::BAD_REQUEST.into_response();
+                    };
+                    before = Some(offset);
+                }
+                Some(("filter", "unread")) if !unread_only => unread_only = true,
+                _ => return StatusCode::BAD_REQUEST.into_response(),
+            }
+        }
+    }
+    let Ok(dir) = reader::owner_dir(&headers) else {
+        return StatusCode::FORBIDDEN.into_response();
     };
-    let admin = app.admin_origin.is_some()
+    let can_mark = app.admin_origin.is_some();
+    let admin = can_mark
         && single_header(&headers, "tailscale-user-login")
             .is_some_and(|login| app.inbox_admins.contains(login));
-    let result = tokio::task::spawn_blocking(move || read_snapshot(before)).await;
+    let Ok(slot) = reader::SCAN_SLOTS.try_acquire() else {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let _slot = slot;
+        let page = reader::filtered_page(open_archive()?, before, unread_only, &dir)?;
+        render(page, before.is_some(), admin, unread_only, &dir, can_mark)
+    })
+    .await;
     match result {
-        Ok(Ok(page)) => Html(render(page, before.is_some(), admin)).into_response(),
-        _ => (StatusCode::SERVICE_UNAVAILABLE, "Inbox unavailable.").into_response(),
+        Ok(Ok(html)) => Html(html).into_response(),
+        _ => unavailable(),
     }
 }
 
@@ -213,11 +307,27 @@ mod tests {
                 .map(|b| format!("{b:02x}"))
                 .collect::<String>()
         );
-        let html = render(first, false, false);
+        let html = render(
+            first,
+            false,
+            false,
+            false,
+            Path::new("/does-not-exist"),
+            true,
+        )
+        .unwrap();
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt; &amp; done"));
         assert!(!html.contains("<img"));
         assert!(!html.contains("/messages/action/"));
-        let html = render(read_page(Cursor::new(&data), None).unwrap(), false, true);
+        let html = render(
+            read_page(Cursor::new(&data), None).unwrap(),
+            false,
+            true,
+            false,
+            Path::new("/does-not-exist"),
+            true,
+        )
+        .unwrap();
         assert!(html.contains("/messages/delete-all") && html.contains("/messages/action/delete/"));
         assert!(!html.contains("<form"));
         data.extend(self::line("new"));

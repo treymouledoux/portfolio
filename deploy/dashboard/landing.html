@@ -74,6 +74,18 @@
       }
       nav a:hover { color: var(--text); background: rgba(46, 67, 78, 0.5); }
       nav a[aria-current="page"] { color: var(--text); background: rgba(46, 67, 78, 0.75); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+
+      .messages-tab { position: relative; display: inline-flex; align-items: center; border-radius: .5rem; padding-right: .45rem; }
+      .messages-tab:has(a[aria-current="page"]) { background: rgba(46, 67, 78, .75); }
+      .messages-tab a { padding-right: .3rem; }
+      .messages-tab a::after { content: ""; position: absolute; inset: 0; }
+      .messages-tab a[aria-current="page"] { background: transparent; box-shadow: none; }
+      .count { display: block; border: 0; width: 8rem; height: 1.5rem; pointer-events: none; }
+      @media (max-width: 34rem) {
+        .masthead-inner { justify-content: flex-start; row-gap: .7rem; }
+        nav { max-width: 100%; }
+        nav a { padding-inline: .55rem; }
+      }
       :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 0.45rem; }
       ::selection { background: rgba(94, 201, 182, 0.25); color: #f2fbf9; }
       main { padding-block: clamp(2rem, 6vw, 3.5rem) clamp(2.5rem, 7vw, 4rem); }
@@ -91,6 +103,9 @@
       .eyebrow { margin-bottom: 0.6rem; color: var(--accent); font: 0.66rem/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.9; }
       h1 { font-size: clamp(1.85rem, 4.2vw, 2.6rem); font-weight: 600; line-height: 1.06; letter-spacing: -0.035em; }
       .lede { margin-top: 0.7rem; max-width: 34rem; color: var(--muted); font-size: 0.88rem; line-height: 1.6; }
+      .update-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+      .poll-toggle { padding: .55rem .8rem; min-height: 2.6rem; color: var(--muted); background: transparent; border: 0; border-radius: .6rem; font: inherit; font-size: .8rem; cursor: pointer; }
+      .poll-toggle:hover { color: var(--accent); }
       .refresh {
         display: inline-flex;
         align-items: center;
@@ -111,7 +126,7 @@
       .refresh:hover { border-color: rgba(142, 230, 213, 0.45); background: linear-gradient(180deg, #1c2d36, #122029); }
       .refresh svg { width: 0.95rem; height: 0.95rem; flex: none; color: var(--accent); }
       h2 { margin-bottom: 0.9rem; color: var(--muted); font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
-      iframe { display: block; width: 100%; height: 11.5rem; border: 0; color-scheme: normal; }
+      .service-frame { display: block; width: 100%; height: 26rem; border: 0; color-scheme: normal; }
       .console-section { margin-top: 2.6rem; }
       .console {
         display: flex;
@@ -150,10 +165,13 @@
         font: 0.82rem/1.55 var(--mono);
       }
       code::before { content: "$ "; color: var(--faint); }
-      /* The frame stacks its cards below 42rem of its own width, which is
-         44.25rem of page width once the wrapper padding is removed. */
-      @media (max-width: 44.25rem) {
-        iframe { height: 23rem; }
+      /* The frame stacks its cards at or below 47rem of its own width, which is
+         49.25rem of page width once the wrapper padding is removed. */
+      @media (max-width: 49.25rem) {
+        .service-frame { height: 50rem; }
+      }
+      @media (max-width: 25rem) {
+        .service-frame { height: 52rem; }
       }
     </style>
   </head>
@@ -163,7 +181,11 @@
         <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span><span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span></a>
         <nav aria-label="Dashboard">
           <a href="/dashboard" aria-current="page">Overview</a>
-          <a href="/dashboard/messages">Messages</a>
+          <span class="messages-tab">
+            <a href="/dashboard/messages">Messages</a>
+            <iframe class="count" title="Total and unread messages" tabindex="-1" data-poll sandbox="" referrerpolicy="no-referrer"
+              src="https://status.example.invalid:8443/embed/inbox-count"></iframe>
+          </span>
         </nav>
       </div>
     </header>
@@ -172,20 +194,23 @@
         <div>
           <p class="eyebrow">Overview</p>
           <h1>Tailnet dashboard</h1>
-          <p class="lede">Service telemetry and secure internal access across the mesh.</p>
+          <p class="lede">Service checks and Raspberry Pi metrics update every 30 seconds.</p>
         </div>
-        <a class="refresh" href="/dashboard">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="M20.5 12a8.5 8.5 0 0 1-14.5 6"/>
-            <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6"/>
-            <path d="M18 3.4v3.2h-3.2M6 20.6v-3.2h3.2"/>
-          </svg>
-          Refresh status
-        </a>
+        <div class="update-controls">
+          <button id="toggle-polling" class="poll-toggle" type="button" hidden>Pause live updates</button>
+          <a class="refresh" href="/dashboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M20.5 12a8.5 8.5 0 0 1-14.5 6"/>
+              <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6"/>
+              <path d="M18 3.4v3.2h-3.2M6 20.6v-3.2h3.2"/>
+            </svg>
+            Refresh status
+          </a>
+        </div>
       </div>
       <section aria-labelledby="services">
         <h2 id="services">Service status</h2>
-        <iframe title="Private service status" sandbox="" referrerpolicy="no-referrer"
+        <iframe class="service-frame" data-poll title="Service and Raspberry Pi status" sandbox="" referrerpolicy="no-referrer"
           src="https://status.example.invalid:8443/embed/status"></iframe>
       </section>
       <section class="console-section" aria-labelledby="ssh">
@@ -194,11 +219,53 @@
           <span class="terminal" aria-hidden="true">&gt;_</span>
           <div class="console-copy">
             <h3>Raspberry Pi SSH</h3>
-            <p>Run this command in Terminal on your authorized Mac or PC. Your iPhone has read-only dashboard access.</p>
+            <p>Run this command in Terminal on your authorized Mac or PC.</p>
             <code>ssh PI_SSH_USER@status.example.invalid</code>
           </div>
         </div>
       </section>
     </main>
+    <script>
+      (() => {
+        const interval = 30_000;
+        const frames = document.querySelectorAll("iframe[data-poll]");
+        const toggle = document.querySelector("#toggle-polling");
+        let paused = false;
+        let timer;
+        let lastFocusedFrame;
+
+        function refresh() {
+          const focused = document.activeElement;
+          for (const frame of frames) {
+            // Give an active service check one interval to finish. Focus can
+            // stay inside the frame indefinitely after a single click.
+            if (frame !== focused || frame === lastFocusedFrame) frame.src = frame.src;
+          }
+          lastFocusedFrame = focused;
+        }
+
+        function schedule(refreshNow) {
+          clearInterval(timer);
+          if (paused || document.hidden) return;
+          if (refreshNow) refresh();
+          timer = setInterval(refresh, interval);
+        }
+
+        if (toggle) {
+          toggle.hidden = false;
+          toggle.addEventListener("click", () => {
+            paused = !paused;
+            toggle.textContent = paused ? "Resume live updates" : "Pause live updates";
+            schedule(!paused);
+          });
+        }
+        document.addEventListener("visibilitychange", () => schedule(!document.hidden));
+        window.addEventListener("pagehide", () => clearInterval(timer));
+        window.addEventListener("pageshow", event => {
+          if (event.persisted) schedule(true);
+        });
+        schedule(false);
+      })();
+    </script>
   </body>
 </html>

@@ -54,7 +54,7 @@ https://treymouledoux.me {
 	route {
 		handle @landing {
 			header {
-				Content-Security-Policy "default-src 'none'; style-src 'sha256-CAtCf/mdKTmQ6ST9ovleNEu+CQVP+KxGkBf5JILcqMI=' 'sha256-TitSUyQV3vGZaevgLS/lnASxxGLLx8czBgvSKJvQajc='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+				Content-Security-Policy "default-src 'none'; style-src 'sha256-u9V6pX+kamK3zmjVTMMShaKJ4waTuXlN2Kb+C/wFI2o=' 'sha256-/i0axvLgm/eHGDXLnPWA7r+cWVIoCa5zlKeWJgxc5Hw='; script-src 'sha256-9xSLQGG7lRmOi9glYVydAmm95M/OGwCeumFIe3ZrluE='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 				Cache-Control "private, no-store"
 				Referrer-Policy no-referrer
 				X-Content-Type-Options nosniff

@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+futures-core = { version = "0.3", default-features = false }
 axum = { version = "0.8", default-features = false, features = ["form", "http1", "json", "tokio"] }
 libc = "0.2"
 ring = "0.17"

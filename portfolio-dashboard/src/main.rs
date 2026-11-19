@@ -1,5 +1,6 @@
 mod inbox;
 mod inbox_actions;
+mod metrics;
 
 use axum::{
     Json, Router,
@@ -27,9 +28,9 @@ const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-usz0I4gQiTPq2ibztldplQpcGzVkdw75baH2cGf/CdQ='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
+const INBOX_CSP: &str = "default-src 'none'; style-src 'sha256-eZePRR4YN0kniZmeetveLi2HKd6Q0zWjIY5vgkFF59U='; frame-ancestors https://treymouledoux.me; sandbox allow-popups allow-popups-to-escape-sandbox; base-uri 'none'; form-action 'none'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-u2KwfkfAeiEf84Q2zHM0sECreg3LrfpfSvQcCa4JYjI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-Vw1LgfNs/MTG+I0KQ3qWadMa1pC062mwOGnV5Ph5bpI='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -49,6 +50,35 @@ enum JetKvm {
 struct Status {
     website: Website,
     jetkvm: JetKvm,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    website_probe: Option<metrics::Reading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jetkvm_probe: Option<metrics::Reading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ping_probe: Option<metrics::Reading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<metrics::Host>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    muse: Option<metrics::Muse>,
+}
+impl Status {
+    fn initial() -> Self {
+        Self {
+            website: Website::Unknown,
+            jetkvm: JetKvm::Unknown,
+            website_probe: None,
+            jetkvm_probe: None,
+            ping_probe: None,
+            host: None,
+            muse: None,
+        }
+    }
+    fn fresh(mut self) -> Self {
+        if let Some(muse) = self.muse.as_mut() {
+            muse.online = muse.current(metrics::epoch());
+        }
+        self
+    }
 }
 #[derive(Serialize)]
 struct Snapshot {
@@ -66,6 +96,7 @@ struct App {
     inbox_admins: Arc<HashSet<String>>,
     admin_origin: Option<String>,
     status: watch::Receiver<Status>,
+    probes: Option<Arc<metrics::Probes>>,
     pi_machine: Option<String>,
     pi_ssh_user: Option<String>,
 }
@@ -143,6 +174,10 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
+    let badge = path == "/embed/inbox-count";
+    let reader_form = path.starts_with("/messages/read/") || path.starts_with("/messages/unread/");
+    let reader_page = reader_form || path == "/messages/export";
+    let reader_resource = reader_page || path == "/messages/export/download" || badge;
     let auth_api = path.starts_with("/messages/auth/");
     let action = matches!(path, "/messages/delete-all" | "/messages/passkey")
         || path.starts_with("/messages/action/")
@@ -150,33 +185,39 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     let login = single_header(req.headers(), "tailscale-user-login");
     let allowed = login.is_some_and(|login| {
         app.viewers.contains(login)
-            && (!(inbox || action) || app.inbox_readers.contains(login))
+            && (!(inbox || action || reader_resource) || app.inbox_readers.contains(login))
             && (!action || (app.admin_origin.is_some() && app.inbox_admins.contains(login)))
     });
     let site = single_header(req.headers(), "sec-fetch-site");
     let dest = single_header(req.headers(), "sec-fetch-dest");
-    let embedding = inbox || path == "/embed/status";
+    let embedding = inbox || badge || path == "/embed/status";
     let navigation = (req.method() == Method::GET || req.method() == Method::HEAD)
         && single_header(req.headers(), "sec-fetch-mode") == Some("navigate")
         && (path == "/"
             || (embedding && dest == Some("iframe"))
-            || (action && dest == Some("document")));
+            || ((action || reader_page) && dest == Some("document")));
     let foreign_request = req.headers().contains_key("sec-fetch-site")
         && !matches!(site, Some("same-origin" | "none"))
         && !navigation;
-    let blocked_action = action
+    let blocked_action = (action || reader_page)
         && ((dest.is_some() && dest != Some(if auth_api { "empty" } else { "document" }))
             || (req.method() == Method::POST
                 && (site != Some("same-origin")
                     || app.admin_origin.as_deref().is_none()
                     || single_header(req.headers(), "origin") != app.admin_origin.as_deref())));
     let denied = !allowed || foreign_request || blocked_action;
-    let mut response = if denied {
+    let hidden_badge = badge
+        && login
+            .is_some_and(|user| app.viewers.contains(user) && !app.inbox_readers.contains(user))
+        && !foreign_request;
+    let mut response = if hidden_badge {
+        (StatusCode::FORBIDDEN, Html("")).into_response()
+    } else if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
     } else {
         next.run(req).await
     };
-    let embed_document = embedding && response.status().is_success();
+    let embed_document = (embedding && response.status().is_success()) || hidden_badge;
     let headers = response.headers_mut();
     headers.insert(
         header::CACHE_CONTROL,
@@ -185,14 +226,20 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     if embed_document {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(if inbox { INBOX_CSP } else { EMBED_CSP }),
+            HeaderValue::from_static(if inbox {
+                INBOX_CSP
+            } else if badge {
+                inbox::BADGE_CSP
+            } else {
+                EMBED_CSP
+            }),
         );
     } else {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(if denied {
                 DENIAL_CSP
-            } else if action {
+            } else if action || reader_form {
                 ACTION_CSP
             } else {
                 CSP
@@ -206,7 +253,7 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     }
     headers.insert(
         header::REFERRER_POLICY,
-        HeaderValue::from_static(if action && !denied {
+        HeaderValue::from_static(if (action || reader_form) && !denied {
             "same-origin"
         } else {
             "no-referrer"
@@ -224,8 +271,29 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     response
 }
 
-async fn embed(State(app): State<App>) -> impl IntoResponse {
-    let status = *app.status.borrow();
+async fn embed(
+    State(app): State<App>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Response {
+    let notice = match query.as_deref() {
+        None => "",
+        Some(q) => {
+            let Some(target) = q.strip_prefix("test=").and_then(metrics::Target::parse) else {
+                return StatusCode::BAD_REQUEST.into_response();
+            };
+            if single_header(&headers, "sec-fetch-mode") != Some("navigate")
+                || single_header(&headers, "sec-fetch-user") != Some("?1")
+            {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+            let Some(probes) = &app.probes else {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            };
+            probes.run(target).await
+        }
+    };
+    let status = app.status.borrow().fresh();
     let (website, web_tone) = match status.website {
         Website::Unknown => ("Unknown", "unknown"),
         Website::Healthy => ("Healthy", "good"),
@@ -236,20 +304,98 @@ async fn embed(State(app): State<App>) -> impl IntoResponse {
         JetKvm::Reachable => ("Reachable", "good"),
         JetKvm::Unavailable => ("Unavailable", "bad"),
     };
+    let latency = |reading: Option<metrics::Reading>| match reading {
+        Some(r) => match r.latency_ms {
+            Some(0) => "&lt;1 ms".to_owned(),
+            Some(ms) => format!("{ms} ms"),
+            None => "No response".to_owned(),
+        },
+        None => "Awaiting check".to_owned(),
+    };
+    let host = status.host.unwrap_or_default();
+    let muse = status.muse.and_then(|m| m.online);
+    let uptime = host.uptime_seconds.map_or_else(
+        || "—".into(),
+        |seconds| {
+            format!(
+                "{}d {}h {}m",
+                seconds / 86400,
+                seconds / 3600 % 24,
+                seconds / 60 % 60
+            )
+        },
+    );
+    let checked = status.website_probe.map_or_else(
+        || "Awaiting first check".into(),
+        |v| {
+            format!(
+                "Website checked {}s ago",
+                metrics::epoch().saturating_sub(v.checked_at)
+            )
+        },
+    );
     Html(
         include_str!("embed.html")
             .replace("{{WEBSITE_STATUS}}", website)
             .replace("{{WEBSITE_TONE}}", web_tone)
             .replace("{{JETKVM_STATUS}}", jetkvm)
-            .replace("{{JETKVM_TONE}}", kvm_tone),
+            .replace("{{JETKVM_TONE}}", kvm_tone)
+            .replace(
+                "{{MUSE_STATUS}}",
+                match muse {
+                    Some(true) => "Connected",
+                    Some(false) => "Offline",
+                    None => "Unknown",
+                },
+            )
+            .replace(
+                "{{MUSE_TONE}}",
+                match muse {
+                    Some(true) => "good",
+                    Some(false) => "bad",
+                    None => "unknown",
+                },
+            )
+            .replace("{{WEB_MS}}", &latency(status.website_probe))
+            .replace("{{TCP_MS}}", &latency(status.jetkvm_probe))
+            .replace("{{PING_MS}}", &latency(status.ping_probe))
+            .replace(
+                "{{CPU}}",
+                &host
+                    .cpu_percent
+                    .map_or_else(|| "—".into(), |n| format!("{n:.1}%")),
+            )
+            .replace(
+                "{{RAM}}",
+                &host
+                    .memory_used_mib
+                    .zip(host.memory_total_mib)
+                    .map_or_else(|| "—".into(), |(a, b)| format!("{a} / {b} MiB")),
+            )
+            .replace("{{UPTIME}}", &uptime)
+            .replace("{{CHECKED}}", &checked)
+            .replace("{{NOTICE}}", notice),
     )
+    .into_response()
 }
 
 fn app(state: App) -> Router {
     Router::new()
         .route("/", get(|| async { Html(include_str!("dashboard.html")) }))
         .route("/embed/status", get(embed))
+        .route("/api/check/{target}", axum::routing::post(test_service))
         .route("/messages", get(inbox::messages))
+        .route("/embed/inbox-count", get(inbox::badge))
+        .route("/messages/export", get(inbox::export_page))
+        .route("/messages/export/download", get(inbox::export))
+        .route(
+            "/messages/read/{id}",
+            get(inbox::mark_page).post(inbox::mark),
+        )
+        .route(
+            "/messages/unread/{id}",
+            get(inbox::mark_page).post(inbox::mark),
+        )
         .route("/messages/delete-all", get(inbox_actions::preview_all))
         .route("/messages/passkey", get(inbox_actions::passkey_page))
         .route(
@@ -303,7 +449,7 @@ fn app(state: App) -> Router {
             "/api/status",
             get(|State(app): State<App>| async move {
                 Json(Snapshot {
-                    status: *app.status.borrow(),
+                    status: app.status.borrow().fresh(),
                     pi_machine: app.pi_machine,
                     pi_ssh_user: app.pi_ssh_user,
                 })
@@ -334,28 +480,21 @@ async fn health_response(mut response: reqwest::Response) -> bool {
     }
 }
 
-async fn monitor(client: reqwest::Client, jetkvm: SocketAddr, state: watch::Sender<Status>) {
-    let mut interval = time::interval(PROBE_INTERVAL);
-    interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-    loop {
-        interval.tick().await;
-        let (healthy, tcp) = tokio::join!(
-            website_healthy(&client),
-            time::timeout(CHECK_TIMEOUT, TcpStream::connect(jetkvm)),
-        );
-        state.send_replace(Status {
-            website: if healthy {
-                Website::Healthy
-            } else {
-                Website::Unavailable
-            },
-            jetkvm: if matches!(tcp, Ok(Ok(_))) {
-                JetKvm::Reachable
-            } else {
-                JetKvm::Unavailable
-            },
-        });
+async fn test_service(
+    State(app): State<App>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if single_header(&headers, "sec-fetch-site") != Some("same-origin") {
+        return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(target) = metrics::Target::parse(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(probes) = &app.probes else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    probes.run(target).await.into_response()
 }
 
 fn inherited_listener() -> io::Result<UnixListener> {
@@ -442,11 +581,9 @@ async fn serve(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(CHECK_TIMEOUT)
         .build()?;
-    let (tx, status) = watch::channel(Status {
-        website: Website::Unknown,
-        jetkvm: JetKvm::Unknown,
-    });
-    tokio::spawn(monitor(client, jetkvm, tx));
+    let (tx, status) = watch::channel(Status::initial());
+    let probes = Arc::new(metrics::Probes::new(client, jetkvm, tx));
+    tokio::spawn(probes.clone().monitor());
     axum::serve(
         listener,
         app(App {
@@ -455,6 +592,7 @@ async fn serve(
             inbox_admins: Arc::new(inbox_admins),
             admin_origin,
             status,
+            probes: Some(probes),
             pi_machine,
             pi_ssh_user,
         }),

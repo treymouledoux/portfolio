@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Muse presence every 30 seconds
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

@@ -20,7 +20,7 @@
       * { box-sizing: border-box; }
       html, body { background: transparent; }
       body { margin: 0; }
-      main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+      main { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; }
       article {
         position: relative;
         padding: 1.15rem 1.25rem 1.2rem;
@@ -77,7 +77,16 @@
         font-size: 0.78rem;
         line-height: 1.55;
       }
-      @media (max-width: 42rem) {
+      .readout { color: var(--text); margin: .6rem 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
+      .checks { display: flex; gap: .4rem 1rem; flex-wrap: wrap; }
+      a { color: var(--accent); font-size: .85rem; line-height: 2; text-underline-offset: .2em; }
+      a:focus-visible { outline: 2px solid currentColor; outline-offset: .15rem; }
+      .host { grid-column: 1 / -1; }
+      .host dl { display: flex; flex-wrap: wrap; gap: .65rem 2rem; margin: .7rem 0; }
+      dt { font-size: .75rem; color: var(--faint); }
+      dd { margin: .25rem 0 0; font: .95rem ui-monospace, monospace; }
+      .stamp { font-size: .78rem; color: var(--faint); }
+      @media (max-width: 47rem) {
         main { grid-template-columns: 1fr; gap: 0.75rem; }
         .reading { margin: 0.9rem 0 1.1rem; }
       }
@@ -88,12 +97,26 @@
       <article>
         <header><h2>Portfolio website</h2><span class="protocol">HTTPS</span></header>
         <p class="reading {{WEBSITE_TONE}}">{{WEBSITE_STATUS}}</p>
-        <p class="detail">Checks the website’s health endpoint from the dashboard host.</p>
+        <p class="detail">HTTPS health response from the Pi</p>
+        <p class="readout">{{WEB_MS}}</p>
+        <a href="/embed/status?test=website">Test HTTPS</a>
       </article>
       <article>
         <header><h2>JetKVM</h2><span class="protocol">TCP</span></header>
         <p class="reading {{JETKVM_TONE}}">{{JETKVM_STATUS}}</p>
-        <p class="detail">Checks whether the device accepts a TCP connection.</p>
+        <p class="detail">TCP connect {{TCP_MS}} · ICMP ping {{PING_MS}}</p>
+        <div class="checks"><a href="/embed/status?test=jetkvm">Test socket</a><a href="/embed/status?test=ping">Test ping</a></div>
+      </article>
+      <article>
+        <header><h2>Muse</h2><span class="protocol">TAILNET</span></header>
+        <p class="reading {{MUSE_TONE}}">{{MUSE_STATUS}}</p>
+        <p class="detail">Connection reported by Tailscale.</p>
+      </article>
+      <article class="host">
+        <h2>Raspberry Pi</h2>
+        <dl><div><dt>CPU</dt><dd>{{CPU}}</dd></div><div><dt>RAM used</dt><dd>{{RAM}}</dd></div><div><dt>Uptime</dt><dd>{{UPTIME}}</dd></div></dl>
+        <p class="stamp">{{CHECKED}} · Polls every 30s</p>
+        <p class="stamp" role="status">{{NOTICE}}</p>
       </article>
     </main>
   </body>

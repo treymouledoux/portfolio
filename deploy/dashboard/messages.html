@@ -75,9 +75,21 @@
       }
       nav a:hover { color: var(--text); background: rgba(46, 67, 78, 0.5); }
       nav a[aria-current="page"] { color: var(--text); background: rgba(46, 67, 78, 0.75); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+
+      .messages-tab { position: relative; display: inline-flex; align-items: center; border-radius: .5rem; padding-right: .45rem; }
+      .messages-tab:has(a[aria-current="page"]) { background: rgba(46, 67, 78, .75); }
+      .messages-tab a { padding-right: .3rem; }
+      .messages-tab a::after { content: ""; position: absolute; inset: 0; }
+      .messages-tab a[aria-current="page"] { background: transparent; box-shadow: none; }
+      .count { display: block; border: 0; width: 8rem; height: 1.5rem; pointer-events: none; }
+      @media (max-width: 34rem) {
+        .masthead-inner { justify-content: flex-start; row-gap: .7rem; }
+        nav { max-width: 100%; }
+        nav a { padding-inline: .55rem; }
+      }
       :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 0.45rem; }
       main { flex: 1; min-height: 0; padding-block: clamp(0.9rem, 2.5vw, 1.4rem); }
-      .inbox { display: block; width: 100%; height: 100%; min-height: 30rem; border: 0; color-scheme: normal; }
+      .inbox { display: block; width: 100%; height: max(30rem, calc(100dvh - 8rem)); border: 0; color-scheme: normal; }
       @media (max-width: 28rem) { .masthead-inner { row-gap: 0; } }
     </style>
   </head>
@@ -87,7 +99,11 @@
         <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span><span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span></a>
         <nav aria-label="Dashboard">
           <a href="/dashboard">Overview</a>
-          <a href="/dashboard/messages" aria-current="page">Messages</a>
+          <span class="messages-tab">
+            <a href="/dashboard/messages" aria-current="page">Messages</a>
+            <iframe class="count" title="Total and unread messages" tabindex="-1" data-poll sandbox="" referrerpolicy="no-referrer"
+              src="https://status.example.invalid:8443/embed/inbox-count"></iframe>
+          </span>
         </nav>
       </div>
     </header>
@@ -95,5 +111,47 @@
       <iframe class="inbox" title="Contact messages" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"
         src="https://status.example.invalid:8443/messages"></iframe>
     </main>
+    <script>
+      (() => {
+        const interval = 30_000;
+        const frames = document.querySelectorAll("iframe[data-poll]");
+        const toggle = document.querySelector("#toggle-polling");
+        let paused = false;
+        let timer;
+        let lastFocusedFrame;
+
+        function refresh() {
+          const focused = document.activeElement;
+          for (const frame of frames) {
+            // Give an active service check one interval to finish. Focus can
+            // stay inside the frame indefinitely after a single click.
+            if (frame !== focused || frame === lastFocusedFrame) frame.src = frame.src;
+          }
+          lastFocusedFrame = focused;
+        }
+
+        function schedule(refreshNow) {
+          clearInterval(timer);
+          if (paused || document.hidden) return;
+          if (refreshNow) refresh();
+          timer = setInterval(refresh, interval);
+        }
+
+        if (toggle) {
+          toggle.hidden = false;
+          toggle.addEventListener("click", () => {
+            paused = !paused;
+            toggle.textContent = paused ? "Resume live updates" : "Pause live updates";
+            schedule(!paused);
+          });
+        }
+        document.addEventListener("visibilitychange", () => schedule(!document.hidden));
+        window.addEventListener("pagehide", () => clearInterval(timer));
+        window.addEventListener("pageshow", event => {
+          if (event.persisted) schedule(true);
+        });
+        schedule(false);
+      })();
+    </script>
   </body>
 </html>

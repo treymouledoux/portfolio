@@ -10,6 +10,7 @@ fn fixture(pi_machine: Option<String>) -> Router {
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
         jetkvm: JetKvm::Unavailable,
+        ..Status::initial()
     });
     app(App {
         viewers: Arc::new(parse_viewers(OWNER).unwrap()),
@@ -17,6 +18,7 @@ fn fixture(pi_machine: Option<String>) -> Router {
         admin_origin: None,
         inbox_readers: Arc::new(HashSet::new()),
         status,
+        probes: None,
         pi_ssh_user: pi_machine.as_ref().map(|_| SSH_USER.to_owned()),
         pi_machine,
     })
@@ -264,6 +266,7 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
         jetkvm: JetKvm::Reachable,
+        ..Status::initial()
     });
     let state = App {
         viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
@@ -271,6 +274,7 @@ async fn inbox_requires_reader_role_and_only_accepts_cross_site_frame_navigation
         admin_origin: None,
         inbox_readers: Arc::new(parse_viewers("owner@example.test,outsider@example.test").unwrap()),
         status,
+        probes: None,
         pi_machine: None,
         pi_ssh_user: None,
     };
@@ -332,6 +336,7 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
         jetkvm: JetKvm::Reachable,
+        ..Status::initial()
     });
     let router = app(App {
         viewers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
@@ -339,6 +344,7 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
         inbox_admins: Arc::new(parse_viewers(OWNER).unwrap()),
         admin_origin: Some(ORIGIN.to_owned()),
         status,
+        probes: None,
         pi_machine: None,
         pi_ssh_user: None,
     });
@@ -457,6 +463,7 @@ async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_p
     let (_, status) = watch::channel(Status {
         website: Website::Healthy,
         jetkvm: JetKvm::Reachable,
+        ..Status::initial()
     });
     let router = app(App {
         viewers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
@@ -464,6 +471,7 @@ async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_p
         inbox_admins: Arc::new(parse_viewers(OWNER).unwrap()),
         admin_origin: Some(ORIGIN.into()),
         status,
+        probes: None,
         pi_machine: None,
         pi_ssh_user: None,
     });
@@ -514,5 +522,115 @@ async fn authentication_api_rejects_cross_origin_and_non_admin_requests_before_p
         let response = router.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), status);
         assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+    }
+}
+
+#[tokio::test]
+async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_mutation() {
+    // Fixture endpoints exercise middleware independently of host filesystem permissions.
+    let (_, status) = watch::channel(Status::initial());
+    let state = App {
+        viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
+        inbox_admins: Arc::new(HashSet::new()),
+        admin_origin: Some("https://pi.example.ts.net:8443".into()),
+        inbox_readers: Arc::new(parse_viewers(OWNER).unwrap()),
+        status,
+        probes: None,
+        pi_machine: None,
+        pi_ssh_user: None,
+    };
+    let r = Router::new()
+        .route("/embed/inbox-count", get(|| async { "count" }))
+        .route("/messages/export/download", get(|| async { "export" }))
+        .route(
+            "/messages/read/{id}",
+            axum::routing::post(|| async { "marked" }),
+        )
+        .layer(middleware::from_fn_with_state(state, protect));
+    for (user, path, method, site, dest, origin, allowed) in [
+        (
+            OWNER,
+            "/embed/inbox-count",
+            "GET",
+            "cross-site",
+            "iframe",
+            "",
+            "yes",
+        ),
+        (
+            "viewer@example.test",
+            "/embed/inbox-count",
+            "GET",
+            "cross-site",
+            "iframe",
+            "",
+            "no",
+        ),
+        (
+            "viewer@example.test",
+            "/messages/export/download",
+            "GET",
+            "same-origin",
+            "document",
+            "",
+            "no",
+        ),
+        (
+            OWNER,
+            "/messages/export/download",
+            "GET",
+            "cross-site",
+            "document",
+            "",
+            "no",
+        ),
+        (
+            OWNER,
+            "/messages/export/download",
+            "GET",
+            "same-origin",
+            "document",
+            "",
+            "yes",
+        ),
+        (
+            OWNER,
+            "/messages/read/abc",
+            "POST",
+            "cross-site",
+            "document",
+            "https://treymouledoux.me",
+            "no",
+        ),
+        (
+            OWNER,
+            "/messages/read/abc",
+            "POST",
+            "same-origin",
+            "document",
+            "https://pi.example.ts.net:8443",
+            "yes",
+        ),
+    ] {
+        let req = Request::builder()
+            .uri(path)
+            .method(method)
+            .header("tailscale-user-login", user)
+            .header("sec-fetch-site", site)
+            .header("sec-fetch-mode", "navigate")
+            .header("sec-fetch-dest", dest)
+            .header("origin", origin)
+            .body(Body::empty())
+            .unwrap();
+        let response = r.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status().is_success(),
+            allowed == "yes",
+            "{path} {user} {site}"
+        );
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
     }
 }

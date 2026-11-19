@@ -39,12 +39,26 @@
           <article>
             <div class="card-heading"><h3>Portfolio website</h3><span class="protocol">HTTPS</span></div>
             <p class="reading" id="website"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
-            <p class="detail">Checks the website’s health endpoint from the dashboard host.</p>
+            <p class="detail">HTTPS health response · <span id="web-ms">—</span></p>
+            <button type="button" data-test="website" hidden>Test HTTPS</button>
           </article>
           <article>
             <div class="card-heading"><h3>JetKVM</h3><span class="protocol">TCP</span></div>
             <p class="reading" id="jetkvm"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
-            <p class="detail">Checks whether the device accepts a TCP connection.</p>
+            <p class="detail">TCP connect <span id="tcp-ms">—</span> · ICMP ping <span id="ping-ms">—</span></p>
+            <button type="button" data-test="jetkvm" hidden>Test socket</button>
+            <button type="button" data-test="ping" hidden>Test ping</button>
+          </article>
+          <article>
+            <div class="card-heading"><h3>Muse</h3><span class="protocol">Tailnet</span></div>
+            <p class="reading" id="muse"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
+            <p class="detail">Connection reported by Tailscale.</p>
+          </article>
+          <article>
+            <div class="card-heading"><h3>Raspberry Pi</h3></div>
+            <p>CPU <strong id="cpu">—</strong></p>
+            <p>RAM used <strong id="ram">—</strong></p>
+            <p>Uptime <strong id="uptime">—</strong></p>
           </article>
         </div>
         <p class="footnote" id="receipt" role="status" aria-live="polite"></p>

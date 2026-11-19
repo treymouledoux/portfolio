@@ -37,6 +37,7 @@ jobs:
       - run: cargo test --locked
       - run: python3 ../scripts/check-dashboard-styles.py
       - run: python3 -B ../deploy/dashboard/test_host_guard.py
+      - run: python3 -B ../deploy/dashboard/test_muse_status.py
       - name: Test passkey verification and contact removal
         run: |
           python3 -m venv "$RUNNER_TEMP/inbox-test"

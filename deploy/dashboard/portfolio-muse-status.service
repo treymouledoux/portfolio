@@ -1,0 +1,29 @@
+[Unit]
+Description=Publish the configured Muse peer's Tailscale presence
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+User=portfolio-muse
+DynamicUser=yes
+Group=portfolio-dashboard
+EnvironmentFile=/etc/portfolio-dashboard/muse.env
+ExecStart=/usr/bin/python3 -I -B /usr/local/libexec/portfolio-muse-status
+RuntimeDirectory=portfolio-muse
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+BindReadOnlyPaths=/run/tailscale/tailscaled.sock:/run/portfolio-muse-localapi.sock
+InaccessiblePaths=-/run/tailscale -/run/portfolio-dashboard -/run/portfolio-inbox-actions -/etc/portfolio-dashboard -/etc/caddy -/etc/credstore -/var/lib/portfolio-inbox-store -/var/lib/portfolio-inbox-auth
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+UMask=0027
