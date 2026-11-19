@@ -29,6 +29,8 @@ const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
 const PEER_SOCKET: &str = "/run/portfolio-dashboard-peer/dashboard.sock";
 const WHOIS_SOCKET: &str = "/run/portfolio-whois/whois.sock";
+// The public apex, whose handoff page may probe this origin.
+const APEX_ORIGIN: &str = "https://treymouledoux.me";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
@@ -186,6 +188,8 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
+    // The public handoff page asks this origin whether it is reachable.
+    let probe = path == "/handoff";
     let badge = path == "/embed/inbox-count";
     let inbox_path = inbox || path.starts_with("/messages/");
     let auth_api = path.starts_with("/messages/auth/");
@@ -205,12 +209,13 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
         },
     };
     let login = login.as_deref();
-    let allowed = login.is_some_and(|login| {
-        app.viewers.contains(login)
-            && (!(inbox_path || badge) || app.inbox_readers.contains(login))
-            && (!inbox_path || app.admin_origin.is_some())
-            && (!destructive || app.inbox_admins.contains(login))
-    });
+    let allowed = probe
+        || login.is_some_and(|login| {
+            app.viewers.contains(login)
+                && (!(inbox_path || badge) || app.inbox_readers.contains(login))
+                && (!inbox_path || app.admin_origin.is_some())
+                && (!destructive || app.inbox_admins.contains(login))
+        });
     let site = single_header(req.headers(), "sec-fetch-site");
     let dest = single_header(req.headers(), "sec-fetch-dest");
     let embedding = badge || path == "/embed/status";
@@ -221,7 +226,8 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
             || (inbox && dest == Some("document")));
     let foreign_request = req.headers().contains_key("sec-fetch-site")
         && !matches!(site, Some("same-origin" | "none"))
-        && !navigation;
+        && !navigation
+        && !probe;
     let wrong_destination = inbox_path
         && dest.is_some_and(|d| {
             if inbox || path == "/messages/passkey" {
@@ -282,7 +288,8 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
         headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
         headers.insert(
             "cross-origin-resource-policy",
-            HeaderValue::from_static("same-origin"),
+            // Only the body-less probe may be read by the public apex.
+            HeaderValue::from_static(if probe { "same-site" } else { "same-origin" }),
         );
     }
     headers.insert(
@@ -303,6 +310,35 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
     );
     headers.insert("x-robots-tag", HeaderValue::from_static("noindex"));
     response
+}
+
+/// Chrome asks a public page before it may reach a private address.
+fn preflight_headers() -> (StatusCode, HeaderMap) {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static(APEX_ORIGIN),
+    );
+    headers.insert(
+        "access-control-allow-methods",
+        HeaderValue::from_static("GET"),
+    );
+    headers.insert(
+        "access-control-allow-private-network",
+        HeaderValue::from_static("true"),
+    );
+    (StatusCode::NO_CONTENT, headers)
+}
+
+/// Reachability probe for the public handoff page: no body, no identity, no
+/// state, and readable across the apex because both share a registrable site.
+async fn handoff() -> (StatusCode, HeaderMap) {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "cross-origin-resource-policy",
+        HeaderValue::from_static("same-site"),
+    );
+    (StatusCode::NO_CONTENT, headers)
 }
 
 async fn embed(
@@ -421,6 +457,10 @@ fn app(state: App) -> Router {
 fn app_with(state: App, trust: Trust) -> Router {
     Router::new()
         .route("/", get(|| async { Html(include_str!("dashboard.html")) }))
+        .route(
+            "/handoff",
+            get(handoff).options(|| async { preflight_headers() }),
+        )
         .route("/embed/status", get(embed))
         .route("/api/check/{target}", axum::routing::post(test_service))
         .route("/messages", get(inbox::messages))

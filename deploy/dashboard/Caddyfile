@@ -33,11 +33,11 @@ https://treymouledoux.me {
 	bind 192.0.2.1 2001:db8::1
 	tls /etc/caddy/tls/apex-fullchain.pem /etc/caddy/tls/apex-key.pem
 
+	# The single public entry point. It is safe for any client: it only probes
+	# the private origin and hands over when the tailnet actually answers.
 	@landing {
 		method GET HEAD
 		path /dashboard /dashboard/ /dashboard/messages /dashboard/messages/
-		# Exact workstation tailnet addresses, in addition to network grants.
-		remote_ip 192.0.2.10/32 2001:db8::10/128
 	}
 	@private path /dashboard /dashboard/*
 	@public_read method GET HEAD
@@ -48,20 +48,17 @@ https://treymouledoux.me {
 	route {
 		handle @landing {
 			header {
-				Content-Security-Policy "default-src 'none'; style-src 'sha256-aAh1Bmji4tf7y3JoPHqNwoAbuzArr5kW1V5XqosjXZQ=' 'sha256-rdtZ91cenPwes4gSQy3K2gu50kxHq9usk/InuWwSN48='; script-src 'sha256-9xSLQGG7lRmOi9glYVydAmm95M/OGwCeumFIe3ZrluE='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+				Content-Security-Policy "default-src 'none'; style-src 'sha256-M3X6bTRQsYoQIZH3Hgb3alA2muaO2eurGaRfbnnR53o='; script-src 'sha256-vEE2KtR1hGoei/wLuulL0o77kQzmCNwtJGuFNEyKbUo='; connect-src https://status.example.invalid; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 				Cache-Control "private, no-store"
 				Referrer-Policy no-referrer
 				X-Content-Type-Options nosniff
 				X-Frame-Options DENY
 				X-Robots-Tag noindex
 			}
-			@messages path /dashboard/messages /dashboard/messages/
-			@overview path /dashboard /dashboard/
 			root * /usr/local/share/portfolio-dashboard
-			# The inbox itself cannot be served here: its passkey and session
-			# are scoped to the private Serve hostname and it denies framing.
-			rewrite @messages /messages.html
-			rewrite @overview /landing.html
+			# The inbox and overview are the private origin's own pages; nothing
+			# of them is rendered here, only the handoff document.
+			rewrite * /handoff.html
 			file_server
 		}
 		handle @private {

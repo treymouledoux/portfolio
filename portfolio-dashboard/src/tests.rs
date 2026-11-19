@@ -472,6 +472,22 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
 }
 
 #[tokio::test]
+async fn handoff_probe_is_readable_by_the_public_apex_without_identity() {
+    let request = Request::builder()
+        .uri("/handoff")
+        .header("sec-fetch-site", "same-site")
+        .body(Body::empty())
+        .unwrap();
+    let response = fixture(None).oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        response.headers()["cross-origin-resource-policy"],
+        "same-site"
+    );
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+}
+
+#[tokio::test]
 async fn gateway_trust_derives_identity_from_the_peer_socket_only() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let path = std::path::PathBuf::from("/tmp")

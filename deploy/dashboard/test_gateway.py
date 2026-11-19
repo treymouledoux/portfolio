@@ -123,8 +123,7 @@ def check_caddy(work, binary):
         cleanup.callback(dashboard.server_close)
         cleanup.callback(dashboard.shutdown)
         (work / "static").mkdir()
-        (work / "static/landing.html").write_bytes((HERE / "landing.html").read_bytes())
-        (work / "static/messages.html").write_bytes((HERE / "messages.html").read_bytes())
+        (work / "static/handoff.html").write_bytes((HERE / "handoff.html").read_bytes())
         config = work / "Caddyfile"
         config.write_text(cfg)
         adapted = json.loads(subprocess.check_output([binary, "adapt", "--config", config, "--adapter", "caddyfile"]))
@@ -157,18 +156,18 @@ def check_caddy(work, binary):
                 finally:
                     conn.close()
 
-        for path in ("/dashboard?example=1", "/dashboard/"):
+        # One public entry point for every client: the handoff page decides.
+        handoff = (HERE / "handoff.html").read_bytes()
+        for path in ("/dashboard?example=1", "/dashboard/", "/dashboard/messages", "/dashboard/messages/"):
             status, headers, body = request(path)
-            assert status == 200 and body == (HERE / "landing.html").read_bytes()
-            assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
-        for path in ("/dashboard/messages", "/dashboard/messages/"):
-            status, headers, body = request(path)
-            assert status == 200 and body == (HERE / "messages.html").read_bytes()
+            assert status == 200 and body == handoff
             assert headers["Cache-Control"] == "private, no-store" and not headers["Location"]
         assert request("/dashboard", method="HEAD")[2] == b""
         assert not public.seen
-        for path, peer, method in [("/dashboard?example=1", "::1", "GET"),
-                                   ("/dashboard/messages", "::1", "GET"),
+        # Everything else under /dashboard still falls through to the public
+        # denial document, whatever the client address.
+        for path, peer, method in [("/dashboard/api?example=1", "::1", "GET"),
+                                   ("/dashboard/other", "127.0.0.1", "GET"),
                                    ("/dashboard/api?example=1", "127.0.0.1", "POST")]:
             status, headers, _ = request(path, peer, method, b"test" if method == "POST" else None)
             seen_method, seen_path, seen_headers, seen_body = public.seen.pop()
