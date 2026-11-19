@@ -5,6 +5,7 @@ After=portfolio-dashboard-guard.service
 
 [Socket]
 ListenStream=/run/portfolio-dashboard-peer/dashboard.sock
+Service=portfolio-dashboard.service
 FileDescriptorName=peer
 DirectoryMode=0750
 SocketUser=root
