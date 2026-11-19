@@ -137,6 +137,7 @@ async fn every_private_route_and_error_requires_one_trusted_viewer() {
         "/dashboard.js",
         "/dashboard.css",
         "/api/status",
+        "/api/history",
         "/embed/status",
         "/messages",
         "/missing",
@@ -208,6 +209,42 @@ async fn only_fixed_status_is_returned_without_writes_or_cors() {
     assert_eq!(
         call("GET", "/api/admin", &headers).await.status(),
         StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn history_is_read_only_and_empty_until_the_pi_records_a_check() {
+    let headers = [("tailscale-user-login", OWNER)];
+    let response = call("GET", "/api/history", &headers).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+        serde_json::json!({"samples": []})
+    );
+    assert_eq!(
+        call("POST", "/api/history", &headers).await.status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+}
+
+#[test]
+fn a_history_row_keeps_every_series_key() {
+    let row = metrics::Sample {
+        at: 30,
+        jetkvm: Some(4),
+        muse: None,
+        portfolio: Some(80),
+        cpu: Some(12.5),
+        ram: Some(250),
+    };
+    assert_eq!(
+        serde_json::to_value(row).unwrap(),
+        serde_json::json!({"at": 30, "jetkvm": 4, "muse": null, "portfolio": 80, "cpu": 12.5, "ram": 250})
     );
 }
 

@@ -47,29 +47,48 @@
           <h2 id="services">Service status</h2>
           <div class="cards">
             <article>
-              <div class="card-heading"><h3>Portfolio website</h3><span class="protocol">HTTPS</span></div>
+              <div class="card-heading"><h3>Portfolio website</h3><span class="protocol is-https">HTTPS</span></div>
               <p class="reading" id="website"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
-              <p class="detail">HTTPS health response · <span id="web-ms">—</span></p>
-              <button type="button" data-test="website" hidden>Test HTTPS</button>
+              <dl class="detail">
+                <div><dt>Ping / Latency</dt><dd class="series-portfolio" id="web-ms">—</dd></div>
+                <div><dt>Status</dt><dd id="web-code">—</dd></div>
+              </dl>
+              <div class="card-foot">
+                <span class="card-scope">Public WAN</span>
+                <button type="button" data-test="website" hidden>Ping</button>
+              </div>
             </article>
             <article>
-              <div class="card-heading"><h3>JetKVM</h3><span class="protocol">TCP</span></div>
+              <div class="card-heading"><h3>JetKVM</h3><span class="protocol is-peer">Tailnet</span></div>
               <p class="reading" id="jetkvm"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
-              <p class="detail">TCP connect <span id="tcp-ms">—</span> · ICMP ping <span id="ping-ms">—</span></p>
-              <button type="button" data-test="jetkvm" hidden>Test socket</button>
-              <button type="button" data-test="ping" hidden>Test ping</button>
+              <dl class="detail">
+                <div><dt>ICMP ping</dt><dd class="series-jetkvm" id="ping-ms">—</dd></div>
+                <div><dt>Address</dt><dd id="kvm-ip">—</dd></div>
+              </dl>
+              <div class="card-foot">
+                <span class="card-scope">Direct peer</span>
+                <button type="button" data-test="ping" hidden>Ping</button>
+              </div>
             </article>
             <article>
-              <div class="card-heading"><h3>Muse</h3><span class="protocol">Tailnet</span></div>
+              <div class="card-heading"><h3>Muse</h3><span class="protocol is-peer">Tailnet</span></div>
               <p class="reading" id="muse"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
-              <p class="detail">ICMP ping <span id="muse-ms">—</span> · presence from Tailscale</p>
-              <button type="button" data-test="muse" hidden>Ping Muse</button>
+              <dl class="detail">
+                <div><dt>ICMP ping</dt><dd class="series-muse" id="muse-ms">—</dd></div>
+                <div><dt>Address</dt><dd id="muse-ip">—</dd></div>
+              </dl>
+              <div class="card-foot">
+                <span class="card-scope">Direct peer</span>
+                <button type="button" data-test="muse" hidden>Ping</button>
+              </div>
             </article>
-            <article>
-              <div class="card-heading"><h3>Raspberry Pi</h3></div>
-              <p>CPU <strong id="cpu">—</strong></p>
-              <p>RAM used <strong id="ram">—</strong></p>
-              <p>Uptime <strong id="uptime">—</strong></p>
+            <article class="host-card">
+              <div class="card-heading"><h3>Raspberry Pi</h3><span class="protocol">Host</span></div>
+              <dl class="host-stats">
+                <div><dt>CPU</dt><dd id="cpu">—</dd></div>
+                <div><dt>RAM used</dt><dd id="ram">—</dd></div>
+                <div><dt>Uptime</dt><dd id="uptime">—</dd></div>
+              </dl>
             </article>
           </div>
           <p class="footnote" id="receipt" role="status" aria-live="polite"></p>
@@ -107,6 +126,7 @@
               </g>
               <g id="chart-series"></g>
             </svg>
+            <div class="chart-tip" id="chart-tip" role="presentation" hidden></div>
             <figcaption>
               <p class="chart-summary" id="chart-summary" role="status">Waiting for the first sample…</p>
               <p class="chart-span" id="chart-span"></p>

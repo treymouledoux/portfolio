@@ -8,26 +8,25 @@ const piMachine = document.querySelector("#pi-machine");
 const sshCommand = document.querySelector("#ssh-command");
 const localTime = new Intl.DateTimeFormat(undefined, {timeStyle: "medium"});
 
-// One sample per poll. Ping keeps every device separately so the panel can
-// overlay any subset of them; CPU and RAM are single lines over the same
-// samples. Missing readings stay gaps instead of becoming zero.
+// The Pi keeps one row per check, so a fresh tab opens on a full graph instead
+// of an empty box waiting for the first poll. Every device keeps its own
+// series; CPU and RAM are single lines over the same rows.
 const DEVICES = {
-  jetkvm: {label: "JetKVM", read: snapshot => snapshot.ping_probe?.latency_ms},
-  muse: {label: "Muse", read: snapshot => snapshot.muse_ping_probe?.latency_ms},
-  portfolio: {label: "Portfolio (WAN)", read: snapshot => snapshot.website_probe?.latency_ms},
+  jetkvm: {label: "JetKVM"},
+  muse: {label: "Muse"},
+  portfolio: {label: "Portfolio (WAN)"},
 };
 const SERIES = {
-  cpu: {label: "CPU", unit: "%", read: snapshot => snapshot.host?.cpu_percent},
-  ram: {label: "RAM used", unit: "MiB", read: snapshot => snapshot.host?.memory_used_mib},
+  cpu: {label: "CPU"},
+  ram: {label: "RAM used"},
 };
 const UNIT = {jetkvm: "ms", muse: "ms", portfolio: "ms", cpu: "%", ram: "MiB"};
-const HISTORY_SIZE = 60;
+const POINTS = 60;
 const HISTORY_STORE = "dashboard-history";
-const HISTORY_MAX_AGE = 30 * 60 * 1000;
 const SVG = "http://www.w3.org/2000/svg";
-const plotted = {jetkvm: [], muse: [], portfolio: [], cpu: [], ram: []};
 const chosen = new Set(Object.keys(DEVICES));
 const chart = {
+  svg: document.getElementById("chart"),
   series: document.getElementById("chart-series"),
   title: document.getElementById("chart-title"),
   summary: document.getElementById("chart-summary"),
@@ -35,15 +34,24 @@ const chart = {
   pills: document.getElementById("chart-pills"),
   menu: document.getElementById("device-menu"),
   count: document.getElementById("device-count"),
+  tip: document.getElementById("chart-tip"),
+  figure: document.querySelector("figure.chart"),
 };
 const viewButtons = [...document.querySelectorAll(".chart-tabs button")];
 const deviceBoxes = [...document.querySelectorAll(".device-list input[type=checkbox]")];
 const deviceToggle = document.getElementById("device-toggle");
 let view = "ping";
+let rows = [];
 
 function setReading(element, label, state = "unknown") {
   element.lastElementChild.textContent = label;
   element.dataset.state = state;
+}
+
+function latency(probe) {
+  if (!probe) return "Awaiting check";
+  if (probe.latency_ms === 0) return "<1 ms";
+  return Number.isFinite(probe.latency_ms) ? `${probe.latency_ms} ms` : "No response";
 }
 
 function showSnapshot(snapshot) {
@@ -52,9 +60,14 @@ function showSnapshot(snapshot) {
   const configured = Boolean(snapshot.pi_machine && snapshot.pi_ssh_user);
   sshCommand.textContent = configured ? `ssh ${snapshot.pi_ssh_user}@${snapshot.pi_machine}` : "";
   sshCommand.hidden = !configured;
-  for (const [id, probe] of [["web-ms", snapshot.website_probe], ["tcp-ms", snapshot.jetkvm_probe], ["ping-ms", snapshot.ping_probe], ["muse-ms", snapshot.muse_ping_probe]]) {
-    document.getElementById(id).textContent = probe?.latency_ms === 0 ? "<1 ms" : Number.isFinite(probe?.latency_ms) ? `${probe.latency_ms} ms` : probe ? "No response" : "Awaiting check";
-  }
+  document.getElementById("web-ms").textContent = latency(snapshot.website_probe);
+  document.getElementById("ping-ms").textContent = latency(snapshot.ping_probe);
+  document.getElementById("muse-ms").textContent = latency(snapshot.muse_ping_probe);
+  const code = snapshot.website_probe?.code;
+  document.getElementById("web-code").textContent = Number.isFinite(code)
+    ? (code === 200 ? "200 OK" : String(code)) : "No response";
+  document.getElementById("kvm-ip").textContent = snapshot.jetkvm_ip || "Not configured";
+  document.getElementById("muse-ip").textContent = snapshot.muse_ip || "Not configured";
   const online = snapshot.muse?.online;
   setReading(document.getElementById("muse"), online === true ? "Connected" : online === false ? "Offline" : "Unknown",
     online === true ? "good" : online === false ? "bad" : "unknown");
@@ -76,6 +89,24 @@ function showSnapshot(snapshot) {
     setReading(jetkvm, "Unavailable", "bad");
   } else {
     setReading(jetkvm, "Unknown");
+  }
+}
+
+// The rows the Pi measured, newest last. A failed reading stays a gap.
+async function loadHistory(signal) {
+  try {
+    const response = await fetch("/api/history", {
+      cache: "no-store", mode: "same-origin", redirect: "error",
+      headers: {Accept: "application/json"}, signal
+    });
+    if (!response.ok) return false;
+    const body = await response.json();
+    if (!Array.isArray(body?.samples)) return false;
+    rows = body.samples.filter(row => Number.isFinite(row?.at)).slice(-POINTS);
+    drawChart();
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -109,7 +140,7 @@ async function refresh(target) {
       throw new Error("Incomplete status response");
     }
     showSnapshot(snapshot);
-    recordChart(snapshot);
+    await loadHistory(controller.signal);
     const stamp = snapshot.website_probe?.checked_at;
     receipt.textContent = notice + (stamp ? `Website checked at ${localTime.format(new Date(stamp * 1000))}. ` : "") + "Checks run every 30 seconds.";
   } catch {
@@ -140,7 +171,7 @@ for (const control of viewButtons) {
     view = control.dataset.view;
     for (const other of viewButtons) other.setAttribute("aria-pressed", String(other === control));
     syncMenu();
-    saveChart();
+    saveView();
     drawChart();
   });
 }
@@ -150,7 +181,7 @@ for (const box of deviceBoxes) {
     if (box.checked) chosen.add(box.value);
     else chosen.delete(box.value);
     syncMenu();
-    saveChart();
+    saveView();
     drawChart();
   });
 }
@@ -160,13 +191,31 @@ deviceToggle.addEventListener("click", () => {
   chosen.clear();
   if (!every) for (const key of Object.keys(DEVICES)) chosen.add(key);
   syncMenu();
-  saveChart();
+  saveView();
   drawChart();
 });
 
-restoreChart();
+// Hovering any dot names that single check: device, value and local time.
+chart.svg.addEventListener("pointermove", event => {
+  const hit = event.target instanceof Element ? event.target.closest(".chart-hit") : null;
+  if (hit) showTip(hit);
+  else hideTip();
+});
+chart.svg.addEventListener("pointerleave", hideTip);
+if (typeof ResizeObserver === "function") {
+  let width = 0;
+  new ResizeObserver(entries => {
+    const next = Math.round(entries[0].contentRect.width);
+    if (next === width) return;
+    width = next;
+    drawChart();
+  }).observe(chart.figure);
+}
+
+restoreView();
 syncMenu();
 drawChart();
+loadHistory();
 
 function syncMenu() {
   chart.menu.hidden = view !== "ping";
@@ -186,74 +235,78 @@ function svgNode(name, attributes) {
   return node;
 }
 
-function recordChart(snapshot) {
-  const at = Date.now();
-  for (const [key, device] of Object.entries(DEVICES)) remember(key, device.read(snapshot), at);
-  for (const [key, series] of Object.entries(SERIES)) remember(key, series.read(snapshot), at);
-  saveChart();
-  drawChart();
-}
-
-function remember(key, raw, at) {
-  const samples = plotted[key];
-  // A refresh right after a poll is the same check, not a new sample.
-  if (samples.length && at - samples.at(-1).at < 5000) samples.pop();
-  samples.push({at, value: typeof raw === "number" && Number.isFinite(raw) ? raw : null});
-  if (samples.length > HISTORY_SIZE) samples.shift();
-}
-
-// A reload keeps this tab's recent lines; nothing leaves the browser.
-function restoreChart() {
+// Only the chosen view and devices are remembered; the samples come from the Pi.
+function restoreView() {
   try {
     const saved = JSON.parse(sessionStorage.getItem(HISTORY_STORE));
-    const cutoff = Date.now() - HISTORY_MAX_AGE;
-    for (const key of Object.keys(plotted)) {
-      const samples = saved?.samples?.[key];
-      if (!Array.isArray(samples)) continue;
-      plotted[key] = samples
-        .filter(sample => Number.isFinite(sample?.at) && sample.at >= cutoff)
-        .slice(-HISTORY_SIZE)
-        .map(sample => ({
-          at: sample.at,
-          value: Number.isFinite(sample.value) ? sample.value : null,
-        }));
-    }
     const devices = Array.isArray(saved?.devices) ? saved.devices.filter(key => key in DEVICES) : [];
     if (devices.length) {
       chosen.clear();
       for (const key of devices) chosen.add(key);
     }
-    if (saved?.view === "ping" || saved?.view === "cpu" || saved?.view === "ram") view = saved.view;
+    if (["ping", "cpu", "ram"].includes(saved?.view)) view = saved.view;
     for (const control of viewButtons) control.setAttribute("aria-pressed", String(control.dataset.view === view));
   } catch {}
 }
 
-function saveChart() {
+function saveView() {
   try {
-    sessionStorage.setItem(HISTORY_STORE, JSON.stringify({samples: plotted, devices: [...chosen], view}));
+    sessionStorage.setItem(HISTORY_STORE, JSON.stringify({devices: [...chosen], view}));
   } catch {}
+}
+
+function seriesFor(key) {
+  return rows.map(row => ({at: row.at * 1000, value: Number.isFinite(row[key]) ? row[key] : null}));
+}
+
+// Dot radii that stay round on screen although the plot stretches to fit.
+function dotSize(pixels) {
+  const box = chart.svg.getBoundingClientRect();
+  return {
+    rx: (pixels * 640) / Math.max(box.width, 1),
+    ry: (pixels * 200) / Math.max(box.height, 1),
+  };
+}
+
+function showTip(target) {
+  const at = Number(target.dataset.at);
+  chart.tip.textContent = `${target.dataset.label} · ${target.dataset.value}`
+    + (Number.isFinite(at) ? ` · ${localTime.format(new Date(at))}` : "");
+  chart.tip.hidden = false;
+  const point = target.getBoundingClientRect();
+  const frame = chart.figure.getBoundingClientRect();
+  const half = chart.tip.offsetWidth / 2;
+  const left = Math.min(Math.max(point.left + point.width / 2 - frame.left, half + 8), Math.max(frame.width - half - 8, half + 8));
+  chart.tip.style.left = `${Math.round(left)}px`;
+  chart.tip.style.top = `${Math.round(point.top - frame.top - 6)}px`;
+}
+
+function hideTip() {
+  chart.tip.hidden = true;
 }
 
 function drawChart() {
   const lines = view === "ping"
     ? Object.keys(DEVICES).filter(key => chosen.has(key)).map(key => ({key, label: DEVICES[key].label}))
     : [{key: view, label: SERIES[view].label}];
+  const data = Object.fromEntries(lines.map(line => [line.key, seriesFor(line.key)]));
   chart.series.replaceChildren();
   chart.pills.replaceChildren();
+  hideTip();
   chart.title.textContent = view === "ping" ? "Ping comparison" : `${SERIES[view].label} over time`;
   if (!lines.length) {
     chart.summary.textContent = "No devices selected. Pick at least one under Devices.";
     chart.span.textContent = "";
     return;
   }
-  const count = Math.max(0, ...lines.map(line => plotted[line.key].length));
-  const values = lines.flatMap(line => plotted[line.key]
+  const count = Math.max(0, ...lines.map(line => data[line.key].length));
+  const values = lines.flatMap(line => data[line.key]
     .map(entry => entry.value)
     .filter(value => Number.isFinite(value)));
   if (!values.length) {
     chart.summary.textContent = "Waiting for the first sample…";
     chart.span.textContent = "";
-    drawPills(lines);
+    drawPills(lines, data);
     return;
   }
   const low = Math.min(...values);
@@ -263,14 +316,20 @@ function drawChart() {
   const ceiling = view === "ping" ? Math.max(high * 1.15, 5) : high + room * 0.15;
   const x = index => (count < 2 ? 640 : (index / (count - 1)) * 640);
   const y = value => 190 - ((value - floor) / (ceiling - floor)) * 180;
+  const dot = dotSize(3);
+  const reach = dotSize(8);
   for (const line of lines) {
-    const samples = plotted[line.key];
+    const samples = data[line.key];
     let path = "";
     let drawing = false;
+    const points = [];
     for (const [index, entry] of samples.entries()) {
       if (!Number.isFinite(entry.value)) { drawing = false; continue; }
-      path += `${drawing ? "L" : "M"}${x(index).toFixed(1)} ${y(entry.value).toFixed(1)}`;
+      const cx = x(index).toFixed(1);
+      const cy = y(entry.value).toFixed(1);
+      path += `${drawing ? "L" : "M"}${cx} ${cy}`;
       drawing = true;
+      points.push({cx, cy, at: entry.at, value: entry.value});
     }
     if (!path) continue;
     chart.series.append(svgNode("path", {
@@ -278,21 +337,30 @@ function drawChart() {
       class: `chart-line series-${line.key}`,
       "vector-effect": "non-scaling-stroke",
     }));
-    const latest = samples.reduce((found, entry, index) => (Number.isFinite(entry.value) ? index : found), -1);
-    if (latest >= 0) {
-      chart.series.append(svgNode("circle", {
-        cx: x(latest).toFixed(1),
-        cy: y(samples[latest].value).toFixed(1),
-        r: "3.5",
+    for (const point of points) {
+      chart.series.append(svgNode("ellipse", {
+        cx: point.cx,
+        cy: point.cy,
+        rx: dot.rx.toFixed(2),
+        ry: dot.ry.toFixed(2),
         class: `chart-dot series-${line.key}`,
-        "vector-effect": "non-scaling-stroke",
+      }));
+      chart.series.append(svgNode("ellipse", {
+        cx: point.cx,
+        cy: point.cy,
+        rx: reach.rx.toFixed(2),
+        ry: reach.ry.toFixed(2),
+        class: "chart-hit",
+        "data-label": line.label,
+        "data-value": formatValue(UNIT[line.key], point.value),
+        "data-at": String(point.at),
       }));
     }
   }
-  drawPills(lines);
+  drawPills(lines, data);
   // The latest readings of the chosen view, not of every device.
   const latestValues = lines
-    .map(line => plotted[line.key].filter(entry => Number.isFinite(entry.value)).at(-1)?.value)
+    .map(line => data[line.key].filter(entry => Number.isFinite(entry.value)).at(-1)?.value)
     .filter(value => Number.isFinite(value));
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   if (view === "ping") {
@@ -304,17 +372,17 @@ function drawChart() {
     chart.summary.textContent =
       `Now ${formatValue(unit, latestValues[0] ?? average)} · avg ${formatValue(unit, average)} · low ${formatValue(unit, low)} · high ${formatValue(unit, high)}`;
   }
-  const times = lines.flatMap(line => plotted[line.key].map(entry => entry.at));
+  const times = lines.flatMap(line => data[line.key].map(entry => entry.at));
   const minutes = (Math.max(...times) - Math.min(...times)) / 60000;
   chart.span.textContent = count < 2
-    ? "One sample so far; a new one every 30 s."
-    : `${count} samples over the last ${minutes < 1 ? "minute" : `${Math.round(minutes)} min`}.`;
+    ? "One check so far; a new one every 30 s."
+    : `${count} checks over the last ${minutes < 1 ? "minute" : `${Math.round(minutes)} min`}.`;
 }
 
-function drawPills(lines) {
+function drawPills(lines, data) {
   for (const line of lines) {
     const unit = UNIT[line.key];
-    const values = plotted[line.key].map(entry => entry.value).filter(value => Number.isFinite(value));
+    const values = data[line.key].map(entry => entry.value).filter(value => Number.isFinite(value));
     const pill = document.createElement("div");
     pill.className = `chart-pill series-${line.key}`;
     const head = document.createElement("p");

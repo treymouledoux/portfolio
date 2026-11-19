@@ -144,6 +144,10 @@ struct Snapshot {
     pi_machine: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pi_ssh_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jetkvm_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    muse_ip: Option<String>,
 }
 /// How this connection reached the app. Serve supplies its own identity
 /// header; the gateway supplies only the peer address on a socket only the
@@ -639,7 +643,20 @@ fn app_with(state: App, trust: Trust) -> Router {
                     status: app.status.borrow().fresh(),
                     pi_machine: app.pi_machine,
                     pi_ssh_user: app.pi_ssh_user,
+                    jetkvm_ip: app.probes.as_ref().map(|probes| probes.jetkvm_ip()),
+                    muse_ip: app.probes.as_ref().and_then(|probes| probes.muse_ip()),
                 })
+            }),
+        )
+        .route(
+            "/api/history",
+            get(|State(app): State<App>| async move {
+                match &app.probes {
+                    Some(probes) => Json(probes.history()),
+                    None => Json(metrics::History {
+                        samples: Vec::new(),
+                    }),
+                }
             }),
         )
         .layer(middleware::from_fn_with_state(
@@ -649,11 +666,13 @@ fn app_with(state: App, trust: Trust) -> Router {
         .with_state(state)
 }
 
-async fn website_healthy(client: &reqwest::Client) -> bool {
+/// The reading and the HTTP status the card shows, from one request.
+async fn website_check(client: &reqwest::Client) -> (bool, Option<u16>) {
     let Ok(response) = client.get(WEBSITE_HEALTH).send().await else {
-        return false;
+        return (false, None);
     };
-    health_response(response).await
+    let code = Some(response.status().as_u16());
+    (health_response(response).await, code)
 }
 
 async fn health_response(mut response: reqwest::Response) -> bool {
@@ -684,7 +703,12 @@ async fn test_service(
     let Some(probes) = &app.probes else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    probes.run(target).await.into_response()
+    let outcome = probes.run(target).await;
+    // A pressed Ping is its own point on the graph, not just a new card value.
+    if outcome == "Check complete" {
+        probes.record();
+    }
+    outcome.into_response()
 }
 
 fn claim_listener(fd: std::os::fd::RawFd, path: &str) -> io::Result<UnixListener> {

@@ -1,10 +1,15 @@
 //! Fixed health probes and read-only Raspberry Pi measurements.
 use super::*;
 use ring::rand::{SecureRandom, SystemRandom};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
+use std::{
+    collections::VecDeque,
+    sync::Mutex,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 const RETEST_DELAY: Duration = Duration::from_secs(5);
+// One hour of checks, so a fresh tab opens on a full graph.
+const HISTORY_LEN: usize = 120;
 
 /// One probe per device: the website over HTTPS, JetKVM over TCP to its one
 /// port and by IPv4 echo, and Muse by IPv4 echo. No device needs two ping
@@ -72,6 +77,9 @@ fn read_muse() -> Option<Muse> {
 #[derive(Clone, Copy, Default, Serialize)]
 pub(super) struct Reading {
     pub(super) latency_ms: Option<u64>,
+    // Only the website check records the HTTP status it saw.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) code: Option<u16>,
     pub(super) checked_at: u64,
 }
 
@@ -79,9 +87,40 @@ impl Reading {
     fn measured(start: Instant, success: bool) -> Self {
         Self {
             latency_ms: success.then(|| start.elapsed().as_millis() as u64),
+            code: None,
             checked_at: epoch(),
         }
     }
+}
+
+/// One reading of every plotted series. The Pi remembers them so a fresh tab
+/// has a graph without waiting for the next poll to arrive.
+#[derive(Clone, Copy, Serialize)]
+pub(super) struct Sample {
+    pub(super) at: u64,
+    pub(super) jetkvm: Option<u64>,
+    pub(super) muse: Option<u64>,
+    pub(super) portfolio: Option<u64>,
+    pub(super) cpu: Option<f32>,
+    pub(super) ram: Option<u64>,
+}
+
+impl Sample {
+    fn of(status: &Status) -> Self {
+        Self {
+            at: epoch(),
+            jetkvm: status.ping_probe.and_then(|probe| probe.latency_ms),
+            muse: status.muse_ping_probe.and_then(|probe| probe.latency_ms),
+            portfolio: status.website_probe.and_then(|probe| probe.latency_ms),
+            cpu: status.host.and_then(|host| host.cpu_percent),
+            ram: status.host.and_then(|host| host.memory_used_mib),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub(super) struct History {
+    pub(super) samples: Vec<Sample>,
 }
 
 #[derive(Clone, Copy, Default, Serialize)]
@@ -195,7 +234,8 @@ pub(super) struct Probes {
     jetkvm: SocketAddr,
     muse: Option<std::net::Ipv4Addr>,
     tx: watch::Sender<Status>,
-    last: [Mutex<Option<Instant>>; 4],
+    last: [tokio::sync::Mutex<Option<Instant>>; 4],
+    history: Mutex<VecDeque<Sample>>,
 }
 
 impl Probes {
@@ -211,7 +251,41 @@ impl Probes {
             muse,
             tx,
             last: Default::default(),
+            history: Mutex::new(VecDeque::with_capacity(HISTORY_LEN)),
         }
+    }
+
+    /// Append the whole current picture, whether a timer or a person asked for it.
+    pub(super) fn record(&self) {
+        let sample = Sample::of(&self.tx.borrow());
+        let mut history = self
+            .history
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if history.len() == HISTORY_LEN {
+            history.pop_front();
+        }
+        history.push_back(sample);
+    }
+
+    pub(super) fn history(&self) -> History {
+        History {
+            samples: self
+                .history
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .copied()
+                .collect(),
+        }
+    }
+
+    pub(super) fn jetkvm_ip(&self) -> String {
+        self.jetkvm.ip().to_string()
+    }
+
+    pub(super) fn muse_ip(&self) -> Option<String> {
+        self.muse.map(|ip| ip.to_string())
     }
 
     pub(super) async fn run(&self, target: Target) -> &'static str {
@@ -229,21 +303,28 @@ impl Probes {
                 Ok(Ok(_))
             )
         };
-        let ok = match target {
-            Target::Website => website_healthy(&self.client).await,
-            Target::Jetkvm => tcp(self.jetkvm).await,
+        let (ok, code) = match target {
+            Target::Website => website_check(&self.client).await,
+            Target::Jetkvm => (tcp(self.jetkvm).await, None),
             Target::Ping => match self.jetkvm.ip() {
-                IpAddr::V4(ip) => {
-                    matches!(time::timeout(CHECK_TIMEOUT, echo(ip)).await, Ok(Ok(())))
-                }
+                IpAddr::V4(ip) => (
+                    matches!(time::timeout(CHECK_TIMEOUT, echo(ip)).await, Ok(Ok(()))),
+                    None,
+                ),
                 IpAddr::V6(_) => return "IPv4 ping is not configured",
             },
-            Target::Muse => match self.muse {
-                Some(ip) => matches!(time::timeout(CHECK_TIMEOUT, echo(ip)).await, Ok(Ok(()))),
-                None => false,
-            },
+            Target::Muse => (
+                match self.muse {
+                    Some(ip) => {
+                        matches!(time::timeout(CHECK_TIMEOUT, echo(ip)).await, Ok(Ok(())))
+                    }
+                    None => false,
+                },
+                None,
+            ),
         };
-        let r = Reading::measured(start, ok);
+        let mut r = Reading::measured(start, ok);
+        r.code = code;
         self.tx.send_modify(|s| match target {
             Target::Website => {
                 s.website = if ok {
@@ -289,6 +370,7 @@ impl Probes {
                     s.muse = muse;
                 });
             }
+            self.record();
         }
     }
 }
@@ -340,6 +422,44 @@ mod tests {
         );
         assert!(rx.borrow().muse_ping_probe.is_none());
     }
+    #[test]
+    fn history_keeps_one_row_per_check_up_to_its_cap() {
+        let (tx, _rx) = watch::channel(Status::initial());
+        let probes = Probes::new(
+            reqwest::Client::new(),
+            "127.0.0.1:9".parse().unwrap(),
+            None,
+            tx.clone(),
+        );
+        tx.send_modify(|s| {
+            s.ping_probe = Some(Reading {
+                latency_ms: Some(4),
+                code: None,
+                checked_at: 1,
+            });
+            s.host = Some(Host {
+                cpu_percent: Some(7.5),
+                memory_used_mib: Some(250),
+                memory_total_mib: Some(415),
+                uptime_seconds: None,
+            });
+        });
+        probes.record();
+        let rows = probes.history().samples;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].jetkvm, Some(4));
+        assert_eq!(rows[0].cpu, Some(7.5));
+        assert_eq!(rows[0].ram, Some(250));
+        assert_eq!(rows[0].muse, None);
+        assert_eq!(rows[0].portfolio, None);
+        for _ in 0..HISTORY_LEN + 5 {
+            probes.record();
+        }
+        assert_eq!(probes.history().samples.len(), HISTORY_LEN);
+        assert_eq!(probes.jetkvm_ip(), "127.0.0.1");
+        assert_eq!(probes.muse_ip(), None);
+    }
+
     #[test]
     fn linux_host_measurements() {
         let a = Cpu::parse("cpu  20 0 10 30 40 0 0 0 987 0\ncpu0 0").unwrap();

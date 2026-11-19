@@ -61,7 +61,7 @@ The Pi reports host-wide CPU utilization over a sampling interval, RAM usage and
 
 Set the optional `muse_ip` and `muse_ping: true` in the same private inventory to allow the dashboard UID an echo request to that one Muse address, then render the existing firewall stage again.
 
-Set the optional `DASHBOARD_MUSE_IP` to that peer's tailnet IPv4 address to echo Muse from the dashboard as well; without it the Muse card shows presence only and the graph leaves its line out. The graph overlays any chosen subset of JetKVM, Muse and the public website, one line per device, on a shared scale.
+Set the optional `DASHBOARD_MUSE_IP` to that peer's tailnet IPv4 address to echo Muse from the dashboard as well; without it the Muse card shows presence only and the graph leaves its line out. The graph overlays any chosen subset of JetKVM, Muse and the public website, one line per device, on a shared scale. The service keeps the last hour of checks in memory and serves them from `/api/history`, so the graph is already full when the page opens and each dot can be hovered for its own reading and time; a restart starts that history over.
 
 Muse displays the Tailscale peer's reported connection state. The optional `portfolio-muse-status.timer` runs a separate unprivileged process every 30 seconds. Its mount namespace exposes the local Tailscale socket at a service-private path. The dashboard itself cannot access this socket. The helper matches both a fixed IP and the full MagicDNS hostname, then publishes just a boolean (or null) and a timestamp to `/run/portfolio-muse/status.json`. Missing, ambiguous or stale observations display as unknown. This reports tailnet presence; checking an application running on Muse would require a separate service check.
 
