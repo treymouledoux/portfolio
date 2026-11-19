@@ -57,6 +57,15 @@ def wait_tcp(port, child):
     raise RuntimeError("Local fixture did not start")
 
 
+class UnixServer(ThreadingHTTPServer):
+    address_family = socket.AF_UNIX
+
+    def server_bind(self):
+        self.socket.bind(self.server_address)
+        self.server_name = "dashboard"
+        self.server_port = 0
+
+
 class Origin(BaseHTTPRequestHandler):
     def do_GET(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -91,17 +100,28 @@ def check_caddy(work, binary):
         cleanup.callback(public.shutdown)
         cert, key = work / "cert.pem", work / "key.pem"
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-                        "-subj", f"/CN={HOST}", "-addext", f"subjectAltName=DNS:{HOST}",
+                        "-subj", f"/CN={HOST}", "-addext", f"subjectAltName=DNS:{HOST},DNS:dashboard.{HOST}",
                         "-keyout", key, "-out", cert], check=True, stderr=subprocess.DEVNULL)
         # IPv4 loopback represents the approved client; IPv6 loopback the non-viewer.
-        assert template.count("bind 192.0.2.1 2001:db8::1") == 1
-        cfg = template.replace("treymouledoux.me", HOST).replace(f"https://{HOST} {{", f"https://{HOST}:{port} {{")
+        assert template.count("bind 192.0.2.1 2001:db8::1") == 2
+        cfg = template.replace("treymouledoux.me", HOST)
+        for site in (HOST, f"dashboard.{HOST}"):
+            cfg = cfg.replace(f"https://{site} {{", f"https://{site}:{port} {{")
         cfg = cfg.replace("bind 192.0.2.1 2001:db8::1", "bind 127.0.0.1 ::1")
         cfg = cfg.replace("192.0.2.10/32", "127.0.0.1/32").replace("127.0.0.1:6050", f"127.0.0.1:{public.server_port}")
         cfg = cfg.replace("/etc/caddy/tls/apex-fullchain.pem", str(cert)).replace("/etc/caddy/tls/apex-key.pem", str(key))
+        cfg = cfg.replace("/etc/caddy/dashboard-tls/dashboard-fullchain.pem", str(cert))
+        cfg = cfg.replace("/etc/caddy/dashboard-tls/dashboard-key.pem", str(key))
+        dashboard_socket = work / "dashboard.sock"
+        cfg = cfg.replace("unix//run/portfolio-dashboard-peer/dashboard.sock", f"unix//{dashboard_socket}")
         cfg = cfg.replace("/usr/local/share/portfolio-dashboard", f'"{work / "static"}"')
         if "127.0.0.1:6050" in cfg or "bind 127.0.0.1 ::1" not in cfg:
             raise ValueError("Fixture did not replace the production listener and upstream")
+        dashboard = UnixServer(str(dashboard_socket), Origin)
+        dashboard.seen = []
+        threading.Thread(target=dashboard.serve_forever, daemon=True).start()
+        cleanup.callback(dashboard.server_close)
+        cleanup.callback(dashboard.shutdown)
         (work / "static").mkdir()
         (work / "static/landing.html").write_bytes((HERE / "landing.html").read_bytes())
         (work / "static/messages.html").write_bytes((HERE / "messages.html").read_bytes())
@@ -115,10 +135,11 @@ def check_caddy(work, binary):
         wait_tcp(port, child)
         tls = ssl.create_default_context(cafile=str(cert))
 
-        def request(path, address="127.0.0.1", method="GET", body=None, hostname=HOST, headers=None):
+        def request(path, address="127.0.0.1", method="GET", body=None, hostname=HOST,
+                    headers=None, sni=None):
             conn = HTTPConnection(HOST, timeout=3)
             with socket.create_connection((address, port), timeout=3) as raw:
-                conn.sock = tls.wrap_socket(raw, server_hostname=HOST)
+                conn.sock = tls.wrap_socket(raw, server_hostname=sni or HOST)
                 try:
                     fields = {
                         "Host": hostname, "Cookie": "synthetic", "Authorization": "synthetic",
@@ -178,6 +199,17 @@ def check_caddy(work, binary):
         assert forwarded["CF-Connecting-IP"] == "127.0.0.1" and forwarded["Content-Type"] == "application/json"
         assert all(not forwarded[h] for h in ("Cookie", "Authorization", "Tailscale-User-Login", "X-Forwarded-For"))
         assert not headers["Set-Cookie"] and not headers["Alt-Svc"]
+        # The dashboard host is one origin, reachable only through the peer socket.
+        status, headers, body = request(
+            "/messages", hostname=f"dashboard.{HOST}", sni=f"dashboard.{HOST}",
+            headers={"X-Portfolio-Peer": "10.9.9.9"},
+        )
+        assert status == 200 and body == b"fixture public response"
+        seen_method, seen_path, seen_headers, _ = dashboard.seen.pop()
+        assert seen_method == "GET" and seen_path == "/messages"
+        assert seen_headers["X-Portfolio-Peer"] == "127.0.0.1", seen_headers
+        assert not seen_headers["Tailscale-User-Login"]
+        assert not public.seen
         assert request("/dashboard", hostname="unexpected.test")[0] == 421
         assert request("/other", method="POST", body=b"{}")[0] == 405 and not public.seen
     print("Caddy: verified TLS host, direct peer selection, original URL, sanitized 403 and public routes.")

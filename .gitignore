@@ -13,3 +13,6 @@ portfolio-contact-smtp.json
 
 # Host-local private dashboard settings and viewer/device inventory
 /deploy/dashboard/local/
+
+# Locally downloaded gateway binaries for deploy/dashboard/test_gateway.py
+.tmp-gw/

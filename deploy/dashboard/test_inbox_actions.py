@@ -131,6 +131,18 @@ class ActionsTest(unittest.TestCase):
             self.now += 5
         return {"action": "commit", "user": self.user, **args, "hold": hold}
 
+    def test_admin_origin_is_one_exact_https_origin(self):
+        for origin in ("https://dashboard.treymouledoux.me",
+                       "https://private.example.ts.net:8443"):
+            self.assertTrue(actions.private_origin(origin), origin)
+        for origin in ("http://dashboard.treymouledoux.me",
+                       "https://dashboard.treymouledoux.me/",
+                       "https://Dashboard.treymouledoux.me",
+                       "https://dashboard.treymouledoux.me:0",
+                       "https://dashboard",
+                       "https://user@dashboard.treymouledoux.me"):
+            self.assertFalse(actions.private_origin(origin), origin)
+
     def test_passkey_origin_uv_binding_signature_counter_and_restart(self):
         for change in ({"origin": "https://example.invalid"}, {"no_uv": True}, {"cross": True},
                        {"challenge": websafe_encode(bytes(32))}, {"rp_hash": bytes(32)}, {"bad_signature": True}):

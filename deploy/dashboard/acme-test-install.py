@@ -47,16 +47,19 @@ class RotationTest(unittest.TestCase):
         subprocess.run([hook.OPENSSL, *args], cwd=self.root, check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def issue(self, name=hook.DOMAIN):
+    def issue(self, name=None, lineage=None):
+        name = name or hook.APEX["domain"]
+        lineage = lineage or self.lineage
         self.ssl("req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
-                 "-nodes", "-subj", f"/CN={name}", "-keyout", "lineage/privkey.pem", "-out", "req")
+                 "-nodes", "-subj", f"/CN={name}", "-keyout", str(lineage / "privkey.pem"),
+                 "-out", "req")
         (self.root / "ext").write_text(f"subjectAltName=DNS:{name}\nextendedKeyUsage=serverAuth\n")
         self.ssl("x509", "-req", "-in", "req", "-CA", "ca.pem", "-CAkey", "ca.key",
-                 "-CAcreateserial", "-days", "20", "-extfile", "ext", "-out", "lineage/cert.pem")
-        shutil.copy(self.root / "ca.pem", self.lineage / "chain.pem")
+                 "-CAcreateserial", "-days", "20", "-extfile", "ext", "-out", str(lineage / "cert.pem"))
+        shutil.copy(self.root / "ca.pem", lineage / "chain.pem")
 
-    def install(self):
-        hook.install(self.base, self.lineage, os.getgid())
+    def install(self, spec=None):
+        hook.install(self.base, self.lineage, os.getgid(), spec or hook.APEX)
 
     def test_initial_and_active_rotation(self):
         self.install()
@@ -106,6 +109,22 @@ class RotationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "do not match"):
             self.install()
         self.assertEqual((self.base / "tls").resolve(), previous)
+
+    def test_dashboard_lineage_installs_its_own_generation(self):
+        self.install()
+        apex = (self.base / "tls").resolve()
+        lineage = self.root / "dashboard-lineage"
+        lineage.mkdir()
+        self.issue(hook.DASHBOARD["domain"], lineage)
+        self.state.return_value = b"active"
+        hook.install(self.base, lineage, os.getgid(), hook.DASHBOARD)
+        link = self.base / "dashboard-tls"
+        self.assertEqual((link / "dashboard-key.pem").read_bytes(), (lineage / "privkey.pem").read_bytes())
+        self.assertEqual(stat.S_IMODE((link / "dashboard-key.pem").stat().st_mode), 0o640)
+        self.assertEqual((self.base / "tls").resolve(), apex)
+        self.assertIn("DNS:dashboard.treymouledoux.me".encode(),
+                      subprocess.check_output([hook.OPENSSL, "x509", "-in", str(link / "dashboard-fullchain.pem"),
+                                               "-noout", "-ext", "subjectAltName"]))
 
 
 if __name__ == "__main__":

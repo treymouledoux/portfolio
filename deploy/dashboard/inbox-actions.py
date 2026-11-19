@@ -122,10 +122,24 @@ def hex_token(value):
     return isinstance(value, str) and re.fullmatch("[0-9a-f]{64}", value) is not None
 
 
+def private_origin(origin):
+    """One exact lowercase HTTPS origin: the Serve host on 8443 or the gateway
+    hostname. No path, userinfo, fragment or trailing slash."""
+    match = re.fullmatch(
+        r"https://((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"
+        r"(?::([0-9]{1,5}))?",
+        origin,
+    )
+    if match is None:
+        return False
+    port = match.group(2)
+    return port is None or 0 < int(port) <= 65535
+
+
 class Broker:
     def __init__(self, directory, key_database, origin, admins, clock=time.monotonic, *, readers=None):
-        if not re.fullmatch(r"https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+ts\.net:8443", origin):
-            raise ValueError("expected exact private dashboard HTTPS origin")
+        if not private_origin(origin):
+            raise ValueError("expected one exact private dashboard HTTPS origin")
         self.directory = directory
         self.origin = origin
         self.admins = frozenset(admins)
