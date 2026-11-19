@@ -90,8 +90,11 @@ https://treymouledoux.me {
 # terminates TLS and forwards the direct peer address; it cannot reach
 # tailscaled or the app's Serve socket, so identity is decided downstream.
 https://dashboard.treymouledoux.me {
-	bind 192.0.2.1 2001:db8::1
-	tls /etc/caddy/dashboard-tls/dashboard-fullchain.pem /etc/caddy/dashboard-tls/dashboard-key.pem
+  bind 192.0.2.1 2001:db8::1
+  tls /etc/caddy/dashboard-tls/dashboard-fullchain.pem /etc/caddy/dashboard-tls/dashboard-key.pem
+  # Which peer asked for the dashboard, and what it got back.
+  log
+
 
 	reverse_proxy unix//run/portfolio-dashboard-peer/dashboard.sock {
 		# Replace anything the client sent: the app trusts only this socket.
