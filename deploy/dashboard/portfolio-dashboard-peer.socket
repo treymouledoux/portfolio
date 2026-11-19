@@ -1,0 +1,16 @@
+[Unit]
+Description=Private dashboard socket for the HTTPS gateway
+Requires=portfolio-dashboard-guard.service
+After=portfolio-dashboard-guard.service
+
+[Socket]
+ListenStream=/run/portfolio-dashboard-peer/dashboard.sock
+FileDescriptorName=peer
+DirectoryMode=0750
+SocketUser=root
+SocketGroup=caddy
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

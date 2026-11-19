@@ -1,3 +1,4 @@
+mod identity;
 mod inbox;
 mod inbox_actions;
 mod metrics;
@@ -26,6 +27,8 @@ const WEBSITE_HEALTH: &str = "https://treymouledoux.me/healthz";
 const CHECK_TIMEOUT: Duration = Duration::from_secs(4);
 const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 const APP_SOCKET: &str = "/run/portfolio-dashboard/app.sock";
+const PEER_SOCKET: &str = "/run/portfolio-dashboard-peer/dashboard.sock";
+const WHOIS_SOCKET: &str = "/run/portfolio-whois/whois.sock";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
@@ -88,12 +91,22 @@ struct Snapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pi_ssh_user: Option<String>,
 }
+/// How this connection reached the app. Serve supplies its own identity
+/// header; the gateway supplies only the peer address on a socket only the
+/// gateway group can open.
+#[derive(Clone, Copy)]
+enum Trust {
+    Serve,
+    Gateway,
+}
+
 #[derive(Clone)]
 struct App {
     viewers: Arc<HashSet<String>>,
     inbox_readers: Arc<HashSet<String>>,
     inbox_admins: Arc<HashSet<String>>,
     admin_origin: Option<String>,
+    whois: Option<Arc<identity::Whois>>,
     status: watch::Receiver<Status>,
     probes: Option<Arc<metrics::Probes>>,
     pi_machine: Option<String>,
@@ -170,7 +183,7 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     values.next().is_none().then_some(value)
 }
 
-async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
+async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
     let badge = path == "/embed/inbox-count";
@@ -179,7 +192,19 @@ async fn protect(State(app): State<App>, req: Request, next: Next) -> Response {
     let destructive = path == "/messages/delete-all"
         || path.starts_with("/messages/action/")
         || matches!(path, "/messages/auth/arm" | "/messages/auth/cancel");
-    let login = single_header(req.headers(), "tailscale-user-login");
+    // Never mix the two sources: a gateway connection ignores any identity
+    // header the client sent, and Serve's path never reads a peer address.
+    let login = match trust {
+        Trust::Serve => single_header(req.headers(), "tailscale-user-login").map(str::to_owned),
+        Trust::Gateway => match (
+            app.whois.as_ref(),
+            single_header(req.headers(), "x-portfolio-peer"),
+        ) {
+            (Some(whois), Some(peer)) => whois.login(peer).await,
+            _ => None,
+        },
+    };
+    let login = login.as_deref();
     let allowed = login.is_some_and(|login| {
         app.viewers.contains(login)
             && (!(inbox_path || badge) || app.inbox_readers.contains(login))
@@ -388,7 +413,12 @@ async fn embed(
     .into_response()
 }
 
+#[cfg(test)]
 fn app(state: App) -> Router {
+    app_with(state, Trust::Serve)
+}
+
+fn app_with(state: App, trust: Trust) -> Router {
     Router::new()
         .route("/", get(|| async { Html(include_str!("dashboard.html")) }))
         .route("/embed/status", get(embed))
@@ -474,7 +504,10 @@ fn app(state: App) -> Router {
                 })
             }),
         )
-        .layer(middleware::from_fn_with_state(state.clone(), protect))
+        .layer(middleware::from_fn_with_state(
+            (state.clone(), trust),
+            protect,
+        ))
         .with_state(state)
 }
 
@@ -516,30 +549,20 @@ async fn test_service(
     probes.run(target).await.into_response()
 }
 
-fn inherited_listener() -> io::Result<UnixListener> {
-    if env::var("LISTEN_PID").ok().and_then(|s| s.parse().ok()) != Some(std::process::id())
-        || env::var("LISTEN_FDS").as_deref() != Ok("1")
-        || env::var("LISTEN_FDNAMES").as_deref() != Ok("dashboard")
-    {
-        return Err(io::Error::other(
-            "expected one systemd socket named dashboard",
-        ));
-    }
-    // systemd supplies the first activation fd at 3. Claim it before Tokio
-    // opens its own fds. fcntl also rejects a missing activation descriptor.
-    if unsafe { libc::fcntl(3, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+fn claim_listener(fd: std::os::fd::RawFd, path: &str) -> io::Result<UnixListener> {
+    // systemd supplies activation fds from 3. Claim each before Tokio opens its
+    // own fds. fcntl also rejects a missing activation descriptor.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: this valid fd was passed at exec and has no other Rust owner.
-    let socket = unsafe { socket2::Socket::from_raw_fd(3) };
+    let socket = unsafe { socket2::Socket::from_raw_fd(fd) };
     let local = socket.local_addr()?;
     if !local.is_unix()
-        || local.as_pathname() != Some(Path::new(APP_SOCKET))
+        || local.as_pathname() != Some(Path::new(path))
         || socket.r#type()? != socket2::Type::STREAM
     {
-        return Err(io::Error::other(
-            "expected private dashboard Unix stream socket",
-        ));
+        return Err(io::Error::other("expected the named private Unix socket"));
     }
     #[cfg(target_os = "linux")]
     if !socket.is_listener()? {
@@ -550,8 +573,50 @@ fn inherited_listener() -> io::Result<UnixListener> {
     Ok(UnixListener::from(owned))
 }
 
+/// Serve activation accepts the Serve socket alone, or that socket plus the
+/// gateway-only peer socket. Names, not ordering, decide which is which.
+fn inherited_listeners() -> io::Result<(UnixListener, Option<UnixListener>)> {
+    if env::var("LISTEN_PID").ok().and_then(|s| s.parse().ok()) != Some(std::process::id()) {
+        return Err(io::Error::other("expected systemd socket activation"));
+    }
+    let count: usize = env::var("LISTEN_FDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| io::Error::other("expected systemd socket activation"))?;
+    let names: Vec<String> = env::var("LISTEN_FDNAMES")
+        .map(|value| value.split(':').map(str::to_owned).collect())
+        .unwrap_or_default();
+    if count != names.len() || !(1..=2).contains(&count) {
+        return Err(io::Error::other(
+            "expected systemd sockets named dashboard and peer",
+        ));
+    }
+    let (mut dashboard, mut peer) = (None, None);
+    for (index, name) in names.iter().enumerate() {
+        let slot = match name.as_str() {
+            "dashboard" if dashboard.is_none() => &mut dashboard,
+            "peer" if peer.is_none() => &mut peer,
+            _ => {
+                return Err(io::Error::other(
+                    "expected systemd sockets named dashboard and peer",
+                ));
+            }
+        };
+        *slot = Some(claim_listener(
+            3 + index as std::os::fd::RawFd,
+            if name == "dashboard" {
+                APP_SOCKET
+            } else {
+                PEER_SOCKET
+            },
+        )?);
+    }
+    let dashboard = dashboard.ok_or_else(|| io::Error::other("expected the dashboard socket"))?;
+    Ok((dashboard, peer))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = inherited_listener()?;
+    let (listener, peer) = inherited_listeners()?;
     let viewers = parse_viewers(&env::var("DASHBOARD_VIEWERS")?)?;
     let jetkvm = jetkvm_endpoint(
         &env::var("DASHBOARD_JETKVM_IP")?,
@@ -567,12 +632,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(env::VarError::NotPresent) => None,
         Err(error) => return Err(error.into()),
     };
-    serve(listener, viewers, jetkvm, pi_machine, pi_ssh_user)
+    serve(listener, peer, viewers, jetkvm, pi_machine, pi_ssh_user)
 }
 
 #[tokio::main]
 async fn serve(
     listener: UnixListener,
+    peer: Option<UnixListener>,
     viewers: HashSet<String>,
     jetkvm: SocketAddr,
     pi_machine: Option<String>,
@@ -594,6 +660,10 @@ async fn serve(
         Err(error) => return Err(error.into()),
     };
     let listener = tokio::net::UnixListener::from_std(listener)?;
+    let peer = match peer {
+        Some(peer) => Some(tokio::net::UnixListener::from_std(peer)?),
+        None => None,
+    };
     let client = reqwest::Client::builder()
         .https_only(true)
         .no_proxy()
@@ -603,20 +673,28 @@ async fn serve(
     let (tx, status) = watch::channel(Status::initial());
     let probes = Arc::new(metrics::Probes::new(client, jetkvm, tx));
     tokio::spawn(probes.clone().monitor());
-    axum::serve(
-        listener,
-        app(App {
-            viewers: Arc::new(viewers),
-            inbox_readers: Arc::new(inbox_readers),
-            inbox_admins: Arc::new(inbox_admins),
-            admin_origin,
-            status,
-            probes: Some(probes),
-            pi_machine,
-            pi_ssh_user,
-        }),
-    )
-    .await?;
+    let state = App {
+        viewers: Arc::new(viewers),
+        inbox_readers: Arc::new(inbox_readers),
+        inbox_admins: Arc::new(inbox_admins),
+        admin_origin,
+        whois: peer
+            .is_some()
+            .then(|| Arc::new(identity::Whois::new(WHOIS_SOCKET))),
+        status,
+        probes: Some(probes),
+        pi_machine,
+        pi_ssh_user,
+    };
+    match peer {
+        Some(peer) => {
+            tokio::try_join!(
+                axum::serve(listener, app_with(state.clone(), Trust::Serve)),
+                axum::serve(peer, app_with(state, Trust::Gateway)),
+            )?;
+        }
+        None => axum::serve(listener, app_with(state, Trust::Serve)).await?,
+    }
     Ok(())
 }
 

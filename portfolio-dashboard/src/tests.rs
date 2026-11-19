@@ -16,6 +16,7 @@ fn fixture(pi_machine: Option<String>) -> Router {
         viewers: Arc::new(parse_viewers(OWNER).unwrap()),
         inbox_admins: Arc::new(HashSet::new()),
         admin_origin: None,
+        whois: None,
         inbox_readers: Arc::new(HashSet::new()),
         status,
         probes: None,
@@ -272,6 +273,7 @@ async fn inbox_requires_a_reader_and_exposes_only_a_lock_screen_to_top_level_nav
         viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
         inbox_admins: Arc::new(HashSet::new()),
         admin_origin: Some("https://pi.example.ts.net:8443".into()),
+        whois: None,
         inbox_readers: Arc::new(parse_viewers("owner@example.test,outsider@example.test").unwrap()),
         status,
         probes: None,
@@ -281,7 +283,10 @@ async fn inbox_requires_a_reader_and_exposes_only_a_lock_screen_to_top_level_nav
     // Use a fixed response to test the access boundary without opening any host message data.
     let test_app = Router::new()
         .route("/messages", get(|| async { Html("fixture") }))
-        .layer(middleware::from_fn_with_state(state, protect));
+        .layer(middleware::from_fn_with_state(
+            (state, Trust::Serve),
+            protect,
+        ));
     for (login, mode, dest, expected) in [
         (OWNER, "navigate", "document", StatusCode::OK),
         (OWNER, "navigate", "iframe", StatusCode::FORBIDDEN),
@@ -346,6 +351,7 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
         inbox_readers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
         inbox_admins: Arc::new(parse_viewers(OWNER).unwrap()),
         admin_origin: Some(ORIGIN.to_owned()),
+        whois: None,
         status,
         probes: None,
         pi_machine: None,
@@ -436,16 +442,98 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
         }
     }
     for origin in [
-        "https://pi.example.ts.net",
+        "",
         "https://pi.example.ts.net:8443/",
-        "https://p.ts.net:8443",
-        "https://treymouledoux.me:8443",
+        "https://pi.example.ts.net/path",
+        "https://p:8443",
+        "https://pi.example.ts.net.",
+        "https://PI.example.ts.net:8443",
+        "https://pi.example.ts.net:0",
+        "https://pi.example.ts.net:99999",
         "http://pi.example.ts.net:8443",
         "https://pi.example.ts.net:8443@other:8443",
     ] {
-        assert!(inbox_actions::origin(origin.to_owned()).is_err());
+        assert!(
+            inbox_actions::origin(origin.to_owned()).is_err(),
+            "{origin}"
+        );
     }
-    assert_eq!(inbox_actions::origin(ORIGIN.to_owned()).unwrap(), ORIGIN);
+    for origin in [
+        "https://pi.example.ts.net:8443",
+        "https://pi.example.ts.net",
+        "https://dashboard.treymouledoux.me",
+    ] {
+        assert_eq!(
+            inbox_actions::origin(origin.to_owned()).unwrap(),
+            origin,
+            "{origin}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn gateway_trust_derives_identity_from_the_peer_socket_only() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let path = std::path::PathBuf::from("/tmp")
+        .join(format!("portfolio-whois-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let helper = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut byte = [0u8; 1];
+        while byte != *b"\n" {
+            if stream.read(&mut byte).await.unwrap() == 0 {
+                break;
+            }
+            request.push(byte[0]);
+        }
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&request).unwrap()["peer"],
+            "100.64.1.2"
+        );
+        stream
+            .write_all(b"{\"ok\":true,\"login\":\"owner@example.test\"}\n")
+            .await
+            .unwrap();
+    });
+    let (_, status) = watch::channel(Status::initial());
+    let state = App {
+        viewers: Arc::new(parse_viewers(OWNER).unwrap()),
+        inbox_readers: Arc::new(HashSet::new()),
+        inbox_admins: Arc::new(HashSet::new()),
+        admin_origin: None,
+        whois: Some(Arc::new(identity::Whois::new(path.clone()))),
+        status,
+        probes: None,
+        pi_machine: None,
+        pi_ssh_user: None,
+    };
+    // The peer address decides identity; the client's own header is ignored.
+    let request = Request::builder()
+        .uri("/")
+        .header("x-portfolio-peer", "100.64.1.2")
+        .header("tailscale-user-login", "intruder@example.test")
+        .body(Body::empty())
+        .unwrap();
+    let response = app_with(state.clone(), Trust::Gateway)
+        .oneshot(request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    helper.await.unwrap();
+    // Without a peer address there is no identity to look up.
+    let request = Request::builder()
+        .uri("/")
+        .header("tailscale-user-login", OWNER)
+        .body(Body::empty())
+        .unwrap();
+    let response = app_with(state, Trust::Gateway)
+        .oneshot(request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]
@@ -472,6 +560,7 @@ async fn authentication_api_allows_configured_readers_and_rejects_cross_origin_r
         inbox_readers: Arc::new(parse_viewers("owner@example.test,reader@example.test").unwrap()),
         inbox_admins: Arc::new(parse_viewers(OWNER).unwrap()),
         admin_origin: Some(ORIGIN.into()),
+        whois: None,
         status,
         probes: None,
         pi_machine: None,
@@ -535,6 +624,7 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
         viewers: Arc::new(parse_viewers("owner@example.test,viewer@example.test").unwrap()),
         inbox_admins: Arc::new(HashSet::new()),
         admin_origin: Some("https://pi.example.ts.net:8443".into()),
+        whois: None,
         inbox_readers: Arc::new(parse_viewers(OWNER).unwrap()),
         status,
         probes: None,
@@ -548,7 +638,10 @@ async fn reader_resources_have_independent_roles_and_no_cross_origin_export_or_m
             "/messages/read/{id}",
             axum::routing::post(|| async { "marked" }),
         )
-        .layer(middleware::from_fn_with_state(state, protect));
+        .layer(middleware::from_fn_with_state(
+            (state, Trust::Serve),
+            protect,
+        ));
     for (user, path, method, site, dest, origin, allowed) in [
         (
             OWNER,

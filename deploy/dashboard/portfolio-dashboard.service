@@ -1,7 +1,7 @@
 [Unit]
 Description=Read-only portfolio status dashboard
-Requires=portfolio-dashboard.socket
-After=portfolio-dashboard.socket network-online.target
+Requires=portfolio-dashboard.socket portfolio-dashboard-peer.socket
+After=portfolio-dashboard.socket portfolio-dashboard-peer.socket network-online.target
 Wants=network-online.target
 
 [Service]

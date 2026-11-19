@@ -14,13 +14,42 @@ pub(super) fn valid_hex(value: &str, len: usize) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// The dashboard may be served by Tailscale Serve on port 8443 or by the
+/// gateway on its own hostname. Either way it is one exact, lowercase HTTPS
+/// origin: no path, userinfo, fragment or trailing slash.
 pub(super) fn origin(value: String) -> Result<String, &'static str> {
-    let host = value
-        .strip_prefix("https://")
-        .and_then(|v| v.strip_suffix(":8443"))
-        .ok_or("invalid DASHBOARD_ADMIN_ORIGIN")?;
-    if !host.ends_with(".ts.net") || pi_machine(host.to_owned()).is_err() {
-        return Err("DASHBOARD_ADMIN_ORIGIN must be the private Serve origin on port 8443");
+    const INVALID: &str = "DASHBOARD_ADMIN_ORIGIN must be one exact HTTPS origin";
+    let rest = value.strip_prefix("https://").ok_or(INVALID)?;
+    if rest.is_empty()
+        || rest.len() > 253
+        || !rest.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b':')
+        })
+    {
+        return Err(INVALID);
+    }
+    let (host, port) = match rest.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (rest, None),
+    };
+    let valid_label = |label: &str| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    };
+    let labels: Vec<_> = host.split('.').collect();
+    if labels.len() < 2 || !labels.iter().all(|label| valid_label(label)) {
+        return Err(INVALID);
+    }
+    if let Some(port) = port {
+        match port.parse::<u16>() {
+            Ok(port) if port != 0 => {}
+            _ => return Err(INVALID),
+        }
     }
     Ok(value)
 }
