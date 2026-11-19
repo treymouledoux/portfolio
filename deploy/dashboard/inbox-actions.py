@@ -10,6 +10,7 @@ from pathlib import Path
 import pwd
 import re
 import secrets
+import shutil
 import socket
 import stat
 import sqlite3
@@ -405,10 +406,36 @@ def open_enrollment(user):
     print("Initial passkey enrollment is open for up to five minutes.")
 
 
+def reset_credential(database, user, backup_dir):
+    """Drop one passkey registration so the owner can enroll on a new origin.
+
+    A stored registration is bound to the origin that created it, so a new
+    hostname can neither use it nor replace it. The operator backs up the
+    database, removes only that login's row, then opens an enrollment window.
+    """
+    database = Path(database)
+    backup = Path(backup_dir) / f"credentials.pre-rebind-{time.strftime('%Y%m%dT%H%M%S')}.sqlite3"
+    shutil.copyfile(database, backup)
+    os.chmod(backup, 0o600)
+    with sqlite3.connect(database) as db:
+        removed = db.execute("DELETE FROM credentials WHERE login = ?", (user,)).rowcount
+    return backup, removed
+
+
+def rebind(user):
+    if os.geteuid() != 0:
+        raise SystemExit("Reset the passkey registration as the local root operator.")
+    backup, removed = reset_credential("/var/lib/portfolio-inbox-auth/credentials.sqlite3", user, "/root")
+    print(f"Removed {removed} registration for {user}; backup at {backup}.")
+    print("Open an enrollment window next, then enroll the passkey at the new origin.")
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["serve"]:
         serve()
     elif len(sys.argv) == 3 and sys.argv[1] == "open-enrollment":
         open_enrollment(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == "rebind":
+        rebind(sys.argv[2])
     else:
-        raise SystemExit("Usage: portfolio-inbox-actions open-enrollment OWNER_LOGIN")
+        raise SystemExit("Usage: portfolio-inbox-actions open-enrollment|rebind OWNER_LOGIN")

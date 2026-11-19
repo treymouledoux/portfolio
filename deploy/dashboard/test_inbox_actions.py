@@ -6,6 +6,8 @@ import importlib.util
 import os
 from pathlib import Path
 import pwd
+import sqlite3
+import stat
 import struct
 import sys
 import tempfile
@@ -130,6 +132,18 @@ class ActionsTest(unittest.TestCase):
         if wait:
             self.now += 5
         return {"action": "commit", "user": self.user, **args, "hold": hold}
+
+    def test_rebind_removes_only_the_owners_registration(self):
+        with sqlite3.connect(self.database) as db:
+            db.execute("INSERT INTO credentials VALUES (?, ?, ?, ?, 0)",
+                       ("other@example.invalid", self.origin, b"handle", b"credential"))
+        backup, removed = actions.reset_credential(self.database, self.user, self.directory)
+        self.assertEqual(removed, 1)
+        self.assertTrue(backup.is_file())
+        self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o600)
+        with sqlite3.connect(self.database) as db:
+            self.assertEqual(db.execute("SELECT login FROM credentials").fetchall(),
+                             [("other@example.invalid",)])
 
     def test_admin_origin_is_one_exact_https_origin(self):
         for origin in ("https://dashboard.treymouledoux.me",
