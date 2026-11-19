@@ -6,7 +6,7 @@ This service reports website HTTPS and JetKVM socket timings, JetKVM echo latenc
 
 | Visitor | Request path and result |
 |---|---|
-| Public internet | Cloudflare → existing tunnel → public Axum listener. Any request for the dashboard hostname gets one fixed tailnet-only notice, and `/dashboard` on the apex stays a static 403. |
+| Public internet | Cloudflare → existing tunnel → public Axum listener. Any request for the dashboard hostname gets one fixed tailnet-only notice, and the apex has no dashboard path at all, so `/dashboard` there is an ordinary miss. |
 | Approved browser | A restricted DNS view resolves both the apex and the dashboard hostname to the Pi. Caddy serves the public site at the apex and the dashboard only at `dashboard.treymouledoux.me`. |
 | Direct private view | Tailscale Serve on TCP 8443 authenticates the transport peer, strips caller-supplied identity and forwards to a root-only Unix socket. The Rust service checks the exact human login for the page, API and assets. |
 | Pi operator | The full dashboard can display the native SSH command. Run it from the authorized Mac or PC, confirm the Pi identity and complete Tailscale's reauthentication when requested. The SSH grant and policy authorize the device, human and OS account independently of dashboard access. |

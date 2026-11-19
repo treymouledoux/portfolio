@@ -113,47 +113,38 @@ async fn redirects_resume_and_cache_policies() {
     );
 }
 #[tokio::test]
-async fn public_dashboard_is_always_forbidden() {
-    let (temp, _, router) = fixture().await;
-    let asset = temp.path().join("assets/dashboard/status.json");
-    std::fs::create_dir_all(asset.parent().unwrap()).unwrap();
-    std::fs::write(asset, "static fallback fixture").unwrap();
+async fn the_apex_has_no_dashboard_route() {
+    // The public apex serves the site and nothing of the dashboard, so its
+    // paths are an ordinary miss rather than a page of their own.
+    let (_temp, _, router) = fixture().await;
     for (method, path) in [
         ("GET", "/dashboard"),
         ("HEAD", "/dashboard"),
         ("GET", "/dashboard/"),
-        ("GET", "/dashboard/status.json?check=1"),
-        ("OPTIONS", "/dashboard"),
-        ("POST", "/dashboard/api/action"),
-        ("DELETE", "/dashboard/api/action"),
+        ("GET", "/dashboard/messages"),
     ] {
         let req = Request::builder()
             .method(method)
             .uri(path)
-            .header("cf-connecting-ip", "100.64.0.1")
-            .header("tailscale-user-login", "owner@example.test")
             .body(Body::empty())
             .unwrap();
         let response = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{method} {path}");
-        let headers = response.headers();
-        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
-        assert_eq!(headers[header::CONTENT_TYPE], "text/html; charset=utf-8");
-        assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
-        assert_eq!(headers[header::REFERRER_POLICY], "no-referrer");
-        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
-        assert!(
-            headers[header::CONTENT_SECURITY_POLICY]
-                .to_str()
-                .unwrap()
-                .contains("default-src 'none'")
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+    }
+    // The static fallback answers reads only; a write or preflight is refused
+    // by its method guard rather than served as a page.
+    for (method, path) in [("OPTIONS", "/dashboard"), ("POST", "/dashboard/api/action")] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        let response = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{method} {path}"
         );
-        let body = to_bytes(response.into_body(), BODY_LIMIT).await.unwrap();
-        if method == "HEAD" {
-            assert!(body.is_empty());
-        } else {
-            assert_eq!(body.as_ref(), include_bytes!("dashboard-denied.html"));
-        }
     }
 }
 #[tokio::test]

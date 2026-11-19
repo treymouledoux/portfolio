@@ -9,7 +9,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{any, get, post},
+    routing::{get, post},
 };
 use chrono::Utc;
 use contact_mail::ContactMailer;
@@ -32,7 +32,7 @@ const BODY_LIMIT: usize = 64 * 1024;
 // Split DNS sends this name to the Pi for tailnet devices. Public clients reach
 // this server instead, and get only the notice below.
 const DASHBOARD_HOST: &str = "dashboard.treymouledoux.me";
-const TAILNET_CSP: &str = "default-src 'none'; style-src 'sha256-EmQCREcGYhiGgw6TykAGI7Xq/J+VSrf365Csh+reFRI='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const TAILNET_CSP: &str = "default-src 'none'; style-src 'sha256-Eno28avfTp2//0n2psVHYPiXlcNGB4R1yLC0qvfaS/8='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const COOLDOWN: Duration = Duration::from_secs(3600);
 const ATTEMPT_WINDOW: Duration = Duration::from_secs(60);
 const MAX_CLIENTS: usize = 4096;
@@ -339,28 +339,8 @@ async fn tailnet_only(request: axum::extract::Request, next: Next) -> Response {
     response
 }
 
-async fn dashboard_denied() -> impl IntoResponse {
-    // The hash allows only the literal stylesheet in dashboard-denied.html.
-    let headers = [
-        (
-            header::CONTENT_SECURITY_POLICY,
-            "default-src 'none'; style-src 'sha256-z1Dp+tiT8Thh8KvsrAUeldzTrwYl1def0juJTkK25p0='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-        ),
-        (header::REFERRER_POLICY, "no-referrer"),
-        (header::X_FRAME_OPTIONS, "DENY"),
-        (header::HeaderName::from_static("x-robots-tag"), "noindex"),
-    ];
-    (
-        StatusCode::FORBIDDEN,
-        headers,
-        Html(include_str!("dashboard-denied.html")),
-    )
-}
 fn app(assets: &Path, state: AppState) -> Router {
     Router::new()
-        .route("/dashboard", any(dashboard_denied))
-        .route("/dashboard/", any(dashboard_denied))
-        .route("/dashboard/{*rest}", any(dashboard_denied))
         .route(
             "/api/contact",
             post(contact)

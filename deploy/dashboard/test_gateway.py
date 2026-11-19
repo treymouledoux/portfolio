@@ -153,9 +153,9 @@ def check_caddy(work, binary):
                 finally:
                     conn.close()
 
-        # The apex hosts only the public site. /dashboard is no longer special:
-        # the public app answers it with its own denial document, and no part of
-        # the private dashboard is rendered, framed or redirected from here.
+        # The apex hosts only the public site. /dashboard is an ordinary path
+        # now, so nothing of the private dashboard is rendered, framed or
+        # redirected from here.
         for path in ("/dashboard", "/dashboard/", "/dashboard/messages", "/dashboard/api?example=1"):
             status, headers, body = request(path)
             seen_method, seen_path, seen_headers, _ = public.seen.pop()

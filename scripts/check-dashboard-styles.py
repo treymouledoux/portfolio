@@ -8,7 +8,6 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = {
-    "portfolio-serve/src/dashboard-denied.html": "portfolio-serve/src/main.rs",
     "portfolio-serve/src/dashboard-tailnet.html": "portfolio-serve/src/main.rs",
     "portfolio-dashboard/src/denied.html": "portfolio-dashboard/src/main.rs",
 }

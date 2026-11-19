@@ -4,7 +4,7 @@ These templates target a systemd Linux Pi running the public Rust server, its Cl
 
 | Traffic | Listener | Destination |
 | --- | --- | --- |
-| Public apex | Existing Cloudflare hostname and tunnel | Public app on `127.0.0.1:6050`, including its custom 403 |
+| Public apex | Existing Cloudflare hostname and tunnel | Public app on `127.0.0.1:6050`; the dashboard hostname names it and gets only the tailnet notice |
 | Approved device visiting the apex | Caddy on the Pi tailnet address, TCP 443 | The public site; the dashboard is only at `dashboard.treymouledoux.me` |
 | Direct private view (Serve fallback) | Native Tailscale Serve at the Pi’s MagicDNS HTTPS name, TCP 8443 | Root-owned Unix socket. App checks Serve's user login for every route |
 | Interactive shell | Native SSH from an approved operator computer | Tailscale SSH identity check and the configured local Pi account |
