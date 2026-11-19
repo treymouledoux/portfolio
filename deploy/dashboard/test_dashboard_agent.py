@@ -77,6 +77,19 @@ def test_a_real_pty_runs_the_shell_and_echoes():
     assert rejected("term-read", id=sid) == "terminal session ended"
 
 
+def test_socket_directory_survives_the_unit_umask():
+    import os
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp) / "agent"
+        previous = os.umask(0o077)
+        try:
+            agent.prepare_directory(directory)
+        finally:
+            os.umask(previous)
+        assert directory.stat().st_mode & 0o777 == 0o750
+
+
 def test_wire_requests_must_be_objects():
     assert agent.handle({"verb": "ping"}) == {"ok": True}
 

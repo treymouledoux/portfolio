@@ -302,19 +302,27 @@ def reaper():
             reap()
 
 
+def prepare_directory(directory):
+    """Create the socket directory so only root and the dashboard group reach it."""
+    directory.mkdir(mode=0o750, exist_ok=True)
+    # The unit runs with UMask=0077, which strips the group bits mkdir asked
+    # for and left the dashboard unable to traverse in to the socket.
+    os.chmod(directory, 0o750)
+    group = None
+    with contextlib.suppress(KeyError):
+        group = pwd.getpwnam("portfolio-dashboard").pw_gid
+    if group is not None and os.geteuid() == 0:
+        os.chown(directory, 0, group)
+    return group
+
+
 def main():
     user = os.environ.get("DASHBOARD_AGENT_SHELL_USER", "trey")
     account(user)  # fail at start, not on the first click
     allowed = {0}
     with contextlib.suppress(KeyError):
         allowed.add(pwd.getpwnam("portfolio-dashboard").pw_uid)
-    directory = Path(SOCKET).parent
-    directory.mkdir(mode=0o750, exist_ok=True)
-    # The dashboard group needs to traverse this directory and open the socket.
-    group = None
-    with contextlib.suppress(KeyError):
-        group = pwd.getpwnam("portfolio-dashboard").pw_gid
-        os.chown(directory, 0, group)
+    group = prepare_directory(Path(SOCKET).parent)
     with contextlib.suppress(FileNotFoundError):
         os.unlink(SOCKET)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
