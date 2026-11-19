@@ -48,7 +48,7 @@ https://treymouledoux.me {
 	route {
 		handle @landing {
 			header {
-				Content-Security-Policy "default-src 'none'; style-src 'sha256-aAh1Bmji4tf7y3JoPHqNwoAbuzArr5kW1V5XqosjXZQ=' 'sha256-hIckcYnXMygrcWY3/9z5fBleFGoTV0gFVYJ5V6gYiak='; script-src 'sha256-9xSLQGG7lRmOi9glYVydAmm95M/OGwCeumFIe3ZrluE='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+				Content-Security-Policy "default-src 'none'; style-src 'sha256-aAh1Bmji4tf7y3JoPHqNwoAbuzArr5kW1V5XqosjXZQ=' 'sha256-rdtZ91cenPwes4gSQy3K2gu50kxHq9usk/InuWwSN48='; script-src 'sha256-9xSLQGG7lRmOi9glYVydAmm95M/OGwCeumFIe3ZrluE='; frame-src https://status.example.invalid:8443; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 				Cache-Control "private, no-store"
 				Referrer-Policy no-referrer
 				X-Content-Type-Options nosniff
@@ -56,9 +56,12 @@ https://treymouledoux.me {
 				X-Robots-Tag noindex
 			}
 			@messages path /dashboard/messages /dashboard/messages/
-			redir @messages https://status.example.invalid:8443/messages 302
+			@overview path /dashboard /dashboard/
 			root * /usr/local/share/portfolio-dashboard
-			rewrite * /landing.html
+			# The inbox itself cannot be served here: its passkey and session
+			# are scoped to the private Serve hostname and it denies framing.
+			rewrite @messages /messages.html
+			rewrite @overview /landing.html
 			file_server
 		}
 		handle @private {

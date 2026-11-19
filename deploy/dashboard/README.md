@@ -29,7 +29,7 @@ Install the reviewed ARM64 artifact and the host-local status configuration, the
 
 ## Routing and isolation
 
-Authorized devices open the dashboard at `/dashboard`. Caddy serves the overview and redirects `/dashboard/messages` to the private inbox in the same tab. The overview polls its sandboxed status and count frames without accessing their contents. The apex sees no message bodies, passkey cookies or private API credentials. Follow the [contact inbox storage procedure](inbox-storage.md) for the read-only inbox mount and reader and admin roles. Keep contact submissions out of static files, public assets and CDN caches. Update CSP pins whenever a pinned style or script changes.
+Authorized devices open the dashboard at `/dashboard`. Caddy serves the overview and a handoff page at `/dashboard/messages`; the inbox itself opens on the private Serve hostname in the same tab, because the passkey and session are scoped to that origin and the inbox denies framing. The overview polls its sandboxed status and count frames without accessing their contents. The apex sees no message bodies, passkey cookies or private API credentials. Follow the [contact inbox storage procedure](inbox-storage.md) for the read-only inbox mount and reader and admin roles. Keep contact submissions out of static files, public assets and CDN caches. Update CSP pins whenever a pinned style or script changes.
 
 The count and status frames disable scripts, forms and top navigation. The inbox runs in its own top-level browsing context and denies framing. Its enrolled passkey unlocks message contents and the reader's controls. Administrators can arm an individual or bulk removal and hold for five seconds to confirm. Devices routed to the public site receive the custom 403.
 

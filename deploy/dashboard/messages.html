@@ -4,17 +4,121 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
-    <title>Private inbox · Trey Mouledoux</title>
+    <title>Messages · Trey Mouledoux</title>
     <style>
-      :root { color-scheme: dark; color: #e8f1f3; background: #070b0e; font: 1rem/1.5 system-ui, sans-serif; }
-      main { margin: 12vh auto; width: min(90%, 38rem); }
-      a { color: #8ee6d5; text-underline-offset: .2em; }
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+        --bg: #070b0e;
+        --line: #1f2e36;
+        --line-soft: #18242c;
+        --line-strong: #2e434e;
+        --text: #e8f1f3;
+        --muted: #9fb2ba;
+        --faint: #778b94;
+        --accent: #8ee6d5;
+        --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+        color: var(--text);
+        background-color: var(--bg);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background-image:
+          radial-gradient(52rem 28rem at 78% -12%, rgba(62, 168, 151, 0.16), transparent 64%),
+          linear-gradient(to right, rgba(148, 190, 196, 0.035) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(148, 190, 196, 0.035) 1px, transparent 1px);
+        background-size: auto, 48px 48px, 48px 48px;
+      }
+      .wrap { width: min(100% - 2.25rem, 60rem); margin-inline: auto; }
+      header { border-bottom: 1px solid var(--line-soft); background: rgba(7, 11, 14, 0.76); }
+      .masthead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; min-height: 4.25rem; padding-block: 0.65rem; }
+      .brand { display: flex; align-items: center; gap: 0.8rem; color: inherit; text-decoration: none; }
+      .monogram {
+        display: grid;
+        place-items: center;
+        width: 2.35rem;
+        height: 2.35rem;
+        padding-right: 0.1em;
+        border: 1px solid rgba(142, 230, 213, 0.32);
+        border-radius: 0.7rem;
+        background: linear-gradient(160deg, rgba(142, 230, 213, 0.16), rgba(142, 230, 213, 0.03));
+        color: var(--accent);
+        font: 700 1rem/1 var(--mono);
+        letter-spacing: -0.08em;
+      }
+      .brand-text { display: flex; flex-direction: column; gap: 0.3rem; line-height: 1; }
+      .brand-text strong { font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em; }
+      .brand-text small { color: var(--faint); font: 0.66rem/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; }
+      nav { display: flex; gap: 0.25rem; padding: 0.22rem; border: 1px solid var(--line); border-radius: 0.7rem; background: rgba(18, 29, 36, 0.7); }
+      nav a { padding: 0.45rem 0.8rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.78rem; font-weight: 500; text-decoration: none; }
+      nav a:hover { color: var(--text); background: rgba(46, 67, 78, 0.5); }
+      nav a[aria-current="page"] { color: var(--text); background: rgba(46, 67, 78, 0.75); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+      main { display: grid; place-items: center; padding-block: clamp(2rem, 6vw, 3.5rem) clamp(2.5rem, 7vw, 4rem); }
+      section {
+        width: min(100%, 27rem);
+        padding: 2rem 1.75rem 1.85rem;
+        border: 1px solid var(--line);
+        border-radius: 1.05rem;
+        background: linear-gradient(165deg, rgba(24, 38, 46, 0.9), rgba(12, 20, 25, 0.95));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 24px 50px -38px rgba(0, 0, 0, 0.95);
+        text-align: center;
+      }
+      .badge {
+        display: grid;
+        place-items: center;
+        width: 3rem;
+        height: 3rem;
+        margin: 0 auto 1.1rem;
+        border: 1px solid rgba(142, 230, 213, 0.28);
+        border-radius: 0.95rem;
+        background: rgba(142, 230, 213, 0.07);
+        color: var(--accent);
+      }
+      .badge svg { width: 1.45rem; height: 1.45rem; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+      h1 { margin: 0; font-size: 1.45rem; font-weight: 600; line-height: 1.15; letter-spacing: -0.025em; }
+      p { margin: 0.7rem 0 0; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
+      .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-top: 1.4rem; }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.6rem;
+        padding: 0.55rem 1rem;
+        border: 1px solid var(--accent);
+        border-radius: 0.7rem;
+        background: var(--accent);
+        color: #07231f;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .button:hover { background: #a6f0e1; }
+      .secondary { border-color: var(--line-strong); background: transparent; color: var(--text); font-weight: 500; }
+      .secondary:hover { border-color: rgba(142, 230, 213, 0.45); background: rgba(28, 45, 54, 0.7); }
+      :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 0.45rem; }
+      ::selection { background: rgba(94, 201, 182, 0.25); color: #f2fbf9; }
+      @media (max-width: 30rem) { .actions, .button { width: 100%; } }
     </style>
   </head>
   <body>
-    <main>
-      <h1>Messages</h1>
-      <a href="https://status.example.invalid:8443/messages">Open private inbox</a>
+    <header><div class="wrap masthead">
+      <a class="brand" href="/"><span class="monogram" aria-hidden="true">tm</span><span class="brand-text"><strong>Trey Mouledoux</strong><small>Private inbox</small></span></a>
+      <nav aria-label="Dashboard"><a href="/dashboard">Overview</a><a href="/dashboard/messages" aria-current="page">Messages</a></nav>
+    </div></header>
+    <main class="wrap">
+      <section>
+        <span class="badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="4.75" y="10.75" width="14.5" height="9.25" rx="2.5"/><path d="M8.6 10.75V8.1a3.4 3.4 0 0 1 6.8 0v2.65"/><path d="M12 14.6v1.6"/></svg>
+        </span>
+        <h1>Messages</h1>
+        <p>Contact submissions open in the private inbox on the Pi's own hostname, where your passkey and tailnet identity are scoped.</p>
+        <div class="actions">
+          <a class="button" href="https://status.example.invalid:8443/messages">Open private inbox</a>
+          <a class="button secondary" href="/dashboard">Back to overview</a>
+        </div>
+      </section>
     </main>
   </body>
 </html>
