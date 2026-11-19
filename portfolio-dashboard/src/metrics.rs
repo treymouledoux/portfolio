@@ -6,11 +6,15 @@ use tokio::sync::Mutex;
 
 const RETEST_DELAY: Duration = Duration::from_secs(5);
 
+/// One probe per device: the website over HTTPS, JetKVM over TCP to its one
+/// port and by IPv4 echo, and Muse by IPv4 echo. No device needs two ping
+/// methods for the same reading.
 #[derive(Clone, Copy)]
 pub(super) enum Target {
     Website,
     Jetkvm,
     Ping,
+    Muse,
 }
 
 impl Target {
@@ -19,6 +23,7 @@ impl Target {
             "website" => Some(Self::Website),
             "jetkvm" => Some(Self::Jetkvm),
             "ping" => Some(Self::Ping),
+            "muse" => Some(Self::Muse),
             _ => None,
         }
     }
@@ -188,25 +193,31 @@ async fn echo(ip: std::net::Ipv4Addr) -> io::Result<()> {
 pub(super) struct Probes {
     client: reqwest::Client,
     jetkvm: SocketAddr,
+    muse: Option<std::net::Ipv4Addr>,
     tx: watch::Sender<Status>,
-    last: [Mutex<Option<Instant>>; 3],
+    last: [Mutex<Option<Instant>>; 4],
 }
 
 impl Probes {
     pub(super) fn new(
         client: reqwest::Client,
         jetkvm: SocketAddr,
+        muse: Option<std::net::Ipv4Addr>,
         tx: watch::Sender<Status>,
     ) -> Self {
         Self {
             client,
             jetkvm,
+            muse,
             tx,
             last: Default::default(),
         }
     }
 
     pub(super) async fn run(&self, target: Target) -> &'static str {
+        if matches!(target, Target::Muse) && self.muse.is_none() {
+            return "Muse ping is not configured";
+        }
         let mut last = self.last[target as usize].lock().await;
         if last.is_some_and(|t| t.elapsed() < RETEST_DELAY) {
             return "Recent result reused";
@@ -226,6 +237,10 @@ impl Probes {
                     matches!(time::timeout(CHECK_TIMEOUT, echo(ip)).await, Ok(Ok(())))
                 }
                 IpAddr::V6(_) => return "IPv4 ping is not configured",
+            },
+            Target::Muse => match self.muse {
+                Some(ip) => matches!(time::timeout(CHECK_TIMEOUT, echo(ip)).await, Ok(Ok(()))),
+                None => false,
             },
         };
         let r = Reading::measured(start, ok);
@@ -247,6 +262,7 @@ impl Probes {
                 s.jetkvm_probe = Some(r);
             }
             Target::Ping => s.ping_probe = Some(r),
+            Target::Muse => s.muse_ping_probe = Some(r),
         });
         *last = Some(Instant::now());
         "Check complete"
@@ -259,10 +275,11 @@ impl Probes {
         loop {
             timer.tick().await;
             let host = tokio::task::spawn_blocking(move || (host_sample(previous), read_muse()));
-            let (_, _, _, sample) = tokio::join!(
+            let (_, _, _, _, sample) = tokio::join!(
                 self.run(Target::Website),
                 self.run(Target::Jetkvm),
                 self.run(Target::Ping),
+                self.run(Target::Muse),
                 host
             );
             if let Ok(((cpu, host), muse)) = sample {
@@ -283,7 +300,12 @@ mod tests {
     async fn simultaneous_fixed_socket_checks_share_one_fresh_result() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let (tx, rx) = watch::channel(Status::initial());
-        let probes = Probes::new(reqwest::Client::new(), listener.local_addr().unwrap(), tx);
+        let probes = Probes::new(
+            reqwest::Client::new(),
+            listener.local_addr().unwrap(),
+            None,
+            tx,
+        );
         let (a, b) = tokio::join!(probes.run(Target::Jetkvm), probes.run(Target::Jetkvm));
         assert!(matches!(
             (a, b),
@@ -297,6 +319,26 @@ mod tests {
         );
         assert!(rx.borrow().jetkvm_probe.unwrap().latency_ms.is_some());
         assert!(Target::parse("100.64.0.9:9999").is_none());
+    }
+
+    #[tokio::test]
+    async fn muse_ping_is_one_probe_that_needs_a_configured_address() {
+        assert!(matches!(Target::parse("muse"), Some(Target::Muse)));
+        for name in ["Muse", "muse ", "muse.ping", ""] {
+            assert!(Target::parse(name).is_none(), "{name}");
+        }
+        let (tx, rx) = watch::channel(Status::initial());
+        let probes = Probes::new(
+            reqwest::Client::new(),
+            "127.0.0.1:9".parse().unwrap(),
+            None,
+            tx,
+        );
+        assert_eq!(
+            probes.run(Target::Muse).await,
+            "Muse ping is not configured"
+        );
+        assert!(rx.borrow().muse_ping_probe.is_none());
     }
     #[test]
     fn linux_host_measurements() {

@@ -110,6 +110,8 @@ struct Status {
     #[serde(skip_serializing_if = "Option::is_none")]
     ping_probe: Option<metrics::Reading>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    muse_ping_probe: Option<metrics::Reading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<metrics::Host>,
     #[serde(skip_serializing_if = "Option::is_none")]
     muse: Option<metrics::Muse>,
@@ -122,6 +124,7 @@ impl Status {
             website_probe: None,
             jetkvm_probe: None,
             ping_probe: None,
+            muse_ping_probe: None,
             host: None,
             muse: None,
         }
@@ -213,6 +216,22 @@ fn parse_viewers(value: &str) -> Result<HashSet<String>, &'static str> {
             Ok(login.to_owned())
         })
         .collect()
+}
+
+/// Muse is only ever echoed, so it needs exactly one tailnet IPv4 address.
+fn muse_address(value: &str) -> Result<std::net::Ipv4Addr, &'static str> {
+    let ip: std::net::Ipv4Addr = value
+        .parse()
+        .map_err(|_| "DASHBOARD_MUSE_IP must be one IPv4 address")?;
+    let octets = ip.octets();
+    if octets[0] != 100
+        || !(64..128).contains(&octets[1])
+        || ip.is_loopback()
+        || ip.is_unspecified()
+    {
+        return Err("DASHBOARD_MUSE_IP must name a Tailscale node address");
+    }
+    Ok(ip)
 }
 
 fn jetkvm_endpoint(address: &str, port: &str) -> Result<SocketAddr, &'static str> {
@@ -751,7 +770,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(env::VarError::NotPresent) => None,
         Err(error) => return Err(error.into()),
     };
-    serve(listener, peer, viewers, jetkvm, pi_machine, pi_ssh_user)
+    let muse = match env::var("DASHBOARD_MUSE_IP") {
+        Ok(value) => Some(muse_address(&value)?),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    serve(
+        listener,
+        peer,
+        viewers,
+        jetkvm,
+        muse,
+        pi_machine,
+        pi_ssh_user,
+    )
 }
 
 #[tokio::main]
@@ -760,6 +792,7 @@ async fn serve(
     peer: Option<UnixListener>,
     viewers: HashSet<String>,
     jetkvm: SocketAddr,
+    muse: Option<std::net::Ipv4Addr>,
     pi_machine: Option<String>,
     pi_ssh_user: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -790,7 +823,7 @@ async fn serve(
         .timeout(CHECK_TIMEOUT)
         .build()?;
     let (tx, status) = watch::channel(Status::initial());
-    let probes = Arc::new(metrics::Probes::new(client, jetkvm, tx));
+    let probes = Arc::new(metrics::Probes::new(client, jetkvm, muse, tx));
     tokio::spawn(probes.clone().monitor());
     let state = App {
         viewers: Arc::new(viewers),

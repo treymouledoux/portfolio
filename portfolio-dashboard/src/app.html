@@ -62,7 +62,8 @@
             <article>
               <div class="card-heading"><h3>Muse</h3><span class="protocol">Tailnet</span></div>
               <p class="reading" id="muse"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
-              <p class="detail">Connection reported by Tailscale.</p>
+              <p class="detail">ICMP ping <span id="muse-ms">—</span> · presence from Tailscale</p>
+              <button type="button" data-test="muse" hidden>Ping Muse</button>
             </article>
             <article>
               <div class="card-heading"><h3>Raspberry Pi</h3></div>
@@ -77,21 +78,34 @@
         <section class="history-section" aria-labelledby="history">
           <div class="history-head">
             <h2 id="history">History</h2>
-            <div class="chart-tabs" role="group" aria-label="Choose a graph">
-              <button type="button" data-series="ping" aria-pressed="true" hidden>Ping</button>
-              <button type="button" data-series="cpu" aria-pressed="false" hidden>CPU</button>
-              <button type="button" data-series="ram" aria-pressed="false" hidden>RAM</button>
+            <div class="chart-controls">
+              <div class="chart-tabs" role="group" aria-label="Choose a graph">
+                <button type="button" data-view="ping" aria-pressed="true" hidden>Ping</button>
+                <button type="button" data-view="cpu" aria-pressed="false" hidden>CPU</button>
+                <button type="button" data-view="ram" aria-pressed="false" hidden>RAM</button>
+              </div>
+              <details class="device-menu" id="device-menu" hidden>
+                <summary>Devices <span id="device-count">3 / 3</span></summary>
+                <div class="device-list" role="group" aria-label="Compare devices">
+                  <button type="button" class="device-toggle" id="device-toggle">Select none</button>
+                  <label><input type="checkbox" value="jetkvm" checked><span>JetKVM</span></label>
+                  <label><input type="checkbox" value="muse" checked><span>Muse</span></label>
+                  <label><input type="checkbox" value="portfolio" checked><span>Portfolio (WAN)</span></label>
+                </div>
+              </details>
             </div>
           </div>
+          <div class="chart-pills" id="chart-pills"></div>
           <figure class="chart">
             <svg id="chart" viewBox="0 0 640 200" preserveAspectRatio="none" role="img" aria-labelledby="chart-title chart-summary">
-              <title id="chart-title">Ping over time</title>
+              <title id="chart-title">Ping comparison</title>
               <g class="chart-grid" aria-hidden="true">
+                <line x1="0" y1="10" x2="640" y2="10" vector-effect="non-scaling-stroke"/>
                 <line x1="0" y1="66" x2="640" y2="66" vector-effect="non-scaling-stroke"/>
-                <line x1="0" y1="132" x2="640" y2="132" vector-effect="non-scaling-stroke"/>
+                <line x1="0" y1="122" x2="640" y2="122" vector-effect="non-scaling-stroke"/>
+                <line x1="0" y1="190" x2="640" y2="190" vector-effect="non-scaling-stroke"/>
               </g>
-              <path id="chart-line" class="chart-line" d="" vector-effect="non-scaling-stroke"/>
-              <circle id="chart-dot" class="chart-dot" r="4" cx="0" cy="0" vector-effect="non-scaling-stroke" hidden/>
+              <g id="chart-series"></g>
             </svg>
             <figcaption>
               <p class="chart-summary" id="chart-summary" role="status">Waiting for the first sample…</p>

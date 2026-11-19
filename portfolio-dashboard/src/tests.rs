@@ -93,6 +93,22 @@ fn rejects_missing_or_ambiguous_configuration() {
     for ip in ["100.82.77.66", "fd7a:115c:a1e0::1"] {
         assert_eq!(jetkvm_endpoint(ip, "443").unwrap().port(), 443);
     }
+    for value in [
+        "",
+        "100.64",
+        "100.63.0.1",
+        "100.128.0.1",
+        "127.0.0.1",
+        "0.0.0.0",
+        "example.test",
+        "fd7a:115c:a1e0::1",
+    ] {
+        assert!(muse_address(value).is_err(), "{value}");
+    }
+    assert_eq!(
+        muse_address("100.92.14.88").unwrap().to_string(),
+        "100.92.14.88"
+    );
 }
 
 #[tokio::test]
