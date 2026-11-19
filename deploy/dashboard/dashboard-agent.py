@@ -74,22 +74,31 @@ class Session:
         self.closed = False
         pid, fd = os.forkpty()
         if pid == 0:  # child
+            step = "identity"
             try:
-                # Only root can change identity; a local test already runs as
-                # the account it asked for.
+                # A root agent cannot simply setuid down inside its sandbox:
+                # dropping the group first clears CAP_SETUID and the next call
+                # fails with EPERM. su does the same handoff, in the order the
+                # kernel expects, and starts the account's login shell.
+                os.environ["TERM"] = "xterm-256color"
                 if os.getuid() == 0:
-                    os.setgid(record.pw_gid)
-                    os.setgroups([])
-                    os.setuid(record.pw_uid)
+                    step = "su"
+                    os.execvpe("/bin/su", ["/bin/su", "-l", record.pw_name], os.environ)
+                step = "home"
                 os.chdir(record.pw_dir or "/")
                 os.environ.update(
                     HOME=record.pw_dir or "/",
                     USER=record.pw_name,
                     LOGNAME=record.pw_name,
                     SHELL=SHELL,
-                    TERM="xterm-256color",
                 )
+                step = "shell"
                 os.execvpe(SHELL, [SHELL, "-l"], os.environ)
+            except BaseException as error:
+                # The child's stderr is the PTY, so a failed start is visible
+                # in the terminal instead of an empty session.
+                with contextlib.suppress(OSError):
+                    os.write(2, f"agent shell failed at {step}: {error}\n".encode())
             finally:
                 os._exit(1)
         self.pid = pid
