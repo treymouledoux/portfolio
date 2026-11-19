@@ -46,3 +46,9 @@ article .eyebrow { display: block; }
 
 .dashboard-tabs a { display: inline-flex; align-items: center; gap: .32rem; min-height: 2.05rem; }
 .unread-count { display: inline-grid; place-items: center; min-width: 1.18rem; height: 1.18rem; padding-inline: .23rem; border-radius: 1rem; background: #173b37; color: var(--accent); font: 650 .68rem/1 var(--mono); }
+
+/* In-page states: the swap dims the old view instead of blanking the page. */
+#view-messages[aria-busy="true"] { opacity: .55; transition: opacity .15s ease; }
+.notice-panel { max-width: 36rem; color: var(--muted); font-size: .88rem; line-height: 1.6; }
+.notice-panel a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { #view-messages[aria-busy="true"] { transition: none; } }

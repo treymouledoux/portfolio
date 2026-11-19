@@ -31,10 +31,59 @@ const PEER_SOCKET: &str = "/run/portfolio-dashboard-peer/dashboard.sock";
 const WHOIS_SOCKET: &str = "/run/portfolio-whois/whois.sock";
 // The public apex, whose handoff page may probe this origin.
 const APEX_ORIGIN: &str = "https://treymouledoux.me";
+const VIEW_OVERVIEW: &str = "overview";
+const VIEW_MESSAGES: &str = "messages";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-Rzss4JSMcSpfczKxWigH8o/Y9+XPZzhGFiCwY+zW/pA='; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const EMBED_CSP: &str = "default-src 'none'; style-src 'sha256-SM1MGwmvKiVaLC9I2tANbbB3OgX6X5fjRiK63pRVMFQ='; frame-ancestors https://treymouledoux.me; sandbox; base-uri 'none'; form-action 'none'";
+
+/// One document carries both views so switching them never reloads the page.
+/// The server fills the requested view, so a deep link, a reload or a browser
+/// without this script still shows the right thing.
+pub(crate) fn shell(view: &str, messages: &str) -> Html<String> {
+    let messages_view = view == VIEW_MESSAGES;
+    Html(
+        include_str!("app.html")
+            .replace(
+                "{{TITLE}}",
+                if messages_view {
+                    "Messages · Tailnet dashboard"
+                } else {
+                    "Overview · Tailnet dashboard"
+                },
+            )
+            .replace(
+                "{{OVERVIEW_HIDDEN}}",
+                if messages_view { " hidden" } else { "" },
+            )
+            .replace(
+                "{{MESSAGES_HIDDEN}}",
+                if messages_view { "" } else { " hidden" },
+            )
+            .replace(
+                "{{OVERVIEW_CURRENT}}",
+                if messages_view {
+                    ""
+                } else {
+                    r#" aria-current="page""#
+                },
+            )
+            .replace(
+                "{{MESSAGES_CURRENT}}",
+                if messages_view {
+                    r#" aria-current="page""#
+                } else {
+                    ""
+                },
+            )
+            .replace("{{MESSAGES}}", messages),
+    )
+}
+
+async fn overview() -> Html<String> {
+    shell(VIEW_OVERVIEW, "")
+}
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -185,9 +234,15 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     values.next().is_none().then_some(value)
 }
 
-async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: Next) -> Response {
+async fn protect(
+    State((app, trust)): State<(App, Trust)>,
+    mut req: Request,
+    next: Next,
+) -> Response {
     let path = req.uri().path();
     let inbox = path == "/messages";
+    // Exactly the body the single-page shell swaps into its Messages view.
+    let fragment = path == "/messages/view";
     // The public handoff page asks this origin whether it is reachable.
     let probe = path == "/handoff";
     let badge = path == "/embed/inbox-count";
@@ -208,9 +263,8 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
             _ => None,
         },
     };
-    let login = login.as_deref();
     let allowed = probe
-        || login.is_some_and(|login| {
+        || login.as_deref().is_some_and(|login| {
             app.viewers.contains(login)
                 && (!(inbox_path || badge) || app.inbox_readers.contains(login))
                 && (!inbox_path || app.admin_origin.is_some())
@@ -248,6 +302,7 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
     let needs_session = inbox_path && !auth_api && path != "/messages/passkey";
     let hidden_badge = badge
         && login
+            .as_deref()
             .is_some_and(|user| app.viewers.contains(user) && !app.inbox_readers.contains(user))
         && !foreign_request;
     let mut response = if hidden_badge {
@@ -255,12 +310,26 @@ async fn protect(State((app, trust)): State<(App, Trust)>, req: Request, next: N
     } else if denied {
         (StatusCode::FORBIDDEN, Html(include_str!("denied.html"))).into_response()
     } else if needs_session && !inbox_actions::unlocked(req.headers()).await {
+        // A locked inbox is a server-rendered state inside the page, not a
+        // reload and not an error the browser has to explain.
         if inbox {
-            inbox::locked_page().into_response()
+            shell(VIEW_MESSAGES, &inbox::locked_fragment()).into_response()
+        } else if fragment {
+            Html(inbox::locked_fragment()).into_response()
         } else {
             StatusCode::UNAUTHORIZED.into_response()
         }
     } else {
+        // Handlers read the identity this connection already proved. On the
+        // gateway that value came from the peer lookup, never from the client.
+        if matches!(trust, Trust::Gateway) {
+            req.headers_mut().remove("tailscale-user-login");
+            if let Some(login) = &login
+                && let Ok(value) = HeaderValue::from_str(login)
+            {
+                req.headers_mut().insert("tailscale-user-login", value);
+            }
+        }
         next.run(req).await
     };
     let embed_document = (embedding && response.status().is_success()) || hidden_badge;
@@ -456,7 +525,7 @@ fn app(state: App) -> Router {
 
 fn app_with(state: App, trust: Trust) -> Router {
     Router::new()
-        .route("/", get(|| async { Html(include_str!("dashboard.html")) }))
+        .route("/", get(overview))
         .route(
             "/handoff",
             get(handoff).options(|| async { preflight_headers() }),
@@ -464,6 +533,7 @@ fn app_with(state: App, trust: Trust) -> Router {
         .route("/embed/status", get(embed))
         .route("/api/check/{target}", axum::routing::post(test_service))
         .route("/messages", get(inbox::messages))
+        .route("/messages/view", get(inbox::view))
         .route("/embed/inbox-count", get(inbox::badge))
         .route("/messages/export/download", get(inbox::export))
         .route("/messages/read/{id}", axum::routing::post(inbox::mark))

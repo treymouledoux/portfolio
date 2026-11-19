@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>{{TITLE}}</title>
+    <link rel="stylesheet" href="/dashboard.css">
+    <link rel="stylesheet" href="/messages.css">
+    <script src="/dashboard.js" defer></script>
+    <script src="/passkey.js" defer></script>
+    <script src="/hold-delete.js" defer></script>
+    <script src="/messages.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="wrap masthead-inner">
+        <a class="brand" href="/">
+          <span class="monogram" aria-hidden="true">tm</span>
+          <span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span>
+        </a>
+        <nav class="dashboard-tabs" id="dashboard-tabs" aria-label="Dashboard">
+          <a href="/" data-view="overview"{{OVERVIEW_CURRENT}}>Overview</a>
+          <a href="/messages" data-view="messages"{{MESSAGES_CURRENT}}>Messages<span class="unread-count" id="inbox-badge" hidden></span></a>
+        </nav>
+      </div>
+    </header>
+    <main class="wrap" id="app">
+      <section id="view-overview" aria-label="Overview"{{OVERVIEW_HIDDEN}}>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Overview</p>
+            <h1>Tailnet dashboard</h1>
+            <p class="lede">Service telemetry and secure internal access across the mesh.</p>
+          </div>
+          <button type="button" id="refresh" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M20.5 12a8.5 8.5 0 0 1-14.5 6"/>
+              <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6"/>
+              <path d="M18 3.4v3.2h-3.2M6 20.6v-3.2h3.2"/>
+            </svg>
+            Refresh status
+          </button>
+        </div>
+        <section aria-labelledby="services">
+          <h2 id="services">Service status</h2>
+          <div class="cards">
+            <article>
+              <div class="card-heading"><h3>Portfolio website</h3><span class="protocol">HTTPS</span></div>
+              <p class="reading" id="website"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
+              <p class="detail">HTTPS health response · <span id="web-ms">—</span></p>
+              <button type="button" data-test="website" hidden>Test HTTPS</button>
+            </article>
+            <article>
+              <div class="card-heading"><h3>JetKVM</h3><span class="protocol">TCP</span></div>
+              <p class="reading" id="jetkvm"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
+              <p class="detail">TCP connect <span id="tcp-ms">—</span> · ICMP ping <span id="ping-ms">—</span></p>
+              <button type="button" data-test="jetkvm" hidden>Test socket</button>
+              <button type="button" data-test="ping" hidden>Test ping</button>
+            </article>
+            <article>
+              <div class="card-heading"><h3>Muse</h3><span class="protocol">Tailnet</span></div>
+              <p class="reading" id="muse"><span class="light" aria-hidden="true"></span><span>Unknown</span></p>
+              <p class="detail">Connection reported by Tailscale.</p>
+            </article>
+            <article>
+              <div class="card-heading"><h3>Raspberry Pi</h3></div>
+              <p>CPU <strong id="cpu">—</strong></p>
+              <p>RAM used <strong id="ram">—</strong></p>
+              <p>Uptime <strong id="uptime">—</strong></p>
+            </article>
+          </div>
+          <p class="footnote" id="receipt" role="status" aria-live="polite"></p>
+          <noscript><p class="footnote">Enable JavaScript to load service status.</p></noscript>
+        </section>
+        <section class="console-section" aria-labelledby="ssh">
+          <h2 id="ssh">Remote access</h2>
+          <div class="console">
+            <span class="terminal" aria-hidden="true">&gt;_</span>
+            <div class="console-copy">
+              <h3>Raspberry Pi SSH</h3>
+              <p>Use a terminal on the authorized Mac or PC to connect to <strong id="pi-machine">the Pi</strong> with your approved Pi account. The iPhone has read-only dashboard access.</p>
+              <code id="ssh-command" hidden></code>
+            </div>
+          </div>
+        </section>
+      </section>
+      <section id="view-messages" aria-label="Messages"{{MESSAGES_HIDDEN}}>{{MESSAGES}}</section>
+    </main>
+    <template id="tpl-denied">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Private inbox</p>
+          <h1>Access denied</h1>
+        </div>
+      </header>
+      <p class="notice-panel">Your tailnet login can open the status overview but not the message archive. Ask the Pi administrator for the inbox reader role.</p>
+    </template>
+  </body>
+</html>

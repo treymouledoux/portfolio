@@ -1,7 +1,23 @@
 "use strict";
 
-if (window.top === window.self) {
-  document.querySelectorAll(".remove-form").forEach(setupHoldConfirmation);
+function initHoldConfirmations() {
+  if (window.top !== window.self) return;
+  for (const form of document.querySelectorAll(".remove-form")) {
+    if (form.dataset.bound === "true") continue;
+    form.dataset.bound = "true";
+    setupHoldConfirmation(form);
+  }
+}
+
+window.HoldDelete = { init: initHoldConfirmations };
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initHoldConfirmations);
+else initHoldConfirmations();
+
+// A locked session and a finished removal both render a fresh view in place.
+function reloadInbox(reset = false) {
+  if (window.Dashboard) window.Dashboard.refreshMessages({ reset });
+  else if (reset) window.location.assign("/messages");
+  else window.location.reload();
 }
 
 function setupHoldConfirmation(form) {
@@ -58,7 +74,7 @@ function setupHoldConfirmation(form) {
       let caption = "Hold to remove";
       if (form.dataset.operation === "delete-all") {
         const result = await fetch("/messages/delete-all", { cache: "no-store" });
-        if (result.status === 401 || result.status === 403) { window.location.reload(); return; }
+        if (result.status === 401 || result.status === 403) { reloadInbox(); return; }
         if (!result.ok) throw Error();
         const snapshot = await result.json();
         if (!Number.isSafeInteger(snapshot.count) || snapshot.count < 1) throw Error();
@@ -72,7 +88,7 @@ function setupHoldConfirmation(form) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ operation: form.dataset.operation, id: target }),
       });
-      if (response.status === 401 || response.status === 403) { window.location.reload(); return; }
+      if (response.status === 401 || response.status === 403) { reloadInbox(); return; }
       if (!response.ok) throw new Error();
       const { hold } = await response.json();
       if (typeof hold !== "string" || !/^[a-f0-9]{64}$/.test(hold)) throw new Error();
@@ -123,14 +139,10 @@ function setupHoldConfirmation(form) {
         method: "POST", credentials: "same-origin", cache: "no-store",
         body: new URLSearchParams({ hold: field.value }),
       });
-      if (response.status === 401 || response.status === 403) { window.location.reload(); return; }
+      if (response.status === 401 || response.status === 403) { reloadInbox(); return; }
       if (response.status === 409) { idle("The inbox changed. Review the messages and try again."); return; }
       if (response.status !== 204) throw Error();
-      if (new URLSearchParams(location.search).has("before")) {
-        const url = new URL(location.href);
-        url.searchParams.delete("before");
-        location.replace(url);
-      } else { location.reload(); }
+      reloadInbox(new URLSearchParams(location.search).has("before"));
     } catch {
       idle("Couldn’t verify the result. Refresh the inbox before trying again.");
     }

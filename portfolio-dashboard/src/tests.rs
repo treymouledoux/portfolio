@@ -331,7 +331,10 @@ async fn inbox_requires_a_reader_and_exposes_only_a_lock_screen_to_top_level_nav
             );
             assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
             let body = to_bytes(response.into_body(), 65536).await.unwrap();
-            assert_eq!(body.as_ref(), inbox::locked_page().0.as_bytes());
+            assert_eq!(
+                body.as_ref(),
+                shell(VIEW_MESSAGES, &inbox::locked_fragment()).0.as_bytes()
+            );
         } else {
             assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         }
@@ -469,6 +472,152 @@ async fn destructive_actions_require_roles_private_origin_and_same_origin_form()
             "{origin}"
         );
     }
+}
+
+#[tokio::test]
+async fn one_document_carries_both_views_and_messages_swap_in_as_a_fragment() {
+    let overview = shell(VIEW_OVERVIEW, "").0;
+    assert!(overview.contains(r#"<section id="view-overview" aria-label="Overview">"#));
+    assert!(overview.contains(r#"<section id="view-messages" aria-label="Messages" hidden>"#));
+    assert!(overview.contains(r#"<a href="/messages" data-view="messages">"#));
+    assert!(overview.contains(r#"aria-current="page">Overview</a>"#));
+    assert!(!overview.contains("{{"));
+    let locked = shell(VIEW_MESSAGES, &inbox::locked_fragment()).0;
+    assert!(locked.contains(r#"<section id="view-overview" aria-label="Overview" hidden>"#));
+    assert!(locked.contains(r#"<section id="view-messages" aria-label="Messages">"#));
+    assert!(locked.contains(r#"<a href="/messages" data-view="messages" aria-current="page">"#));
+    assert!(locked.contains(r#"<title>Messages · Tailnet dashboard</title>"#));
+    assert!(locked.contains(r#"id="inbox-locked""#) && !locked.contains("{{"));
+
+    let (_, status) = watch::channel(Status::initial());
+    let router = Router::new()
+        .route("/messages/view", get(|| async { Html("fixture") }))
+        .layer(middleware::from_fn_with_state(
+            (
+                App {
+                    viewers: Arc::new(parse_viewers(OWNER).unwrap()),
+                    inbox_readers: Arc::new(parse_viewers(OWNER).unwrap()),
+                    inbox_admins: Arc::new(HashSet::new()),
+                    admin_origin: Some("https://dashboard.example.test".into()),
+                    whois: None,
+                    status,
+                    probes: None,
+                    pi_machine: None,
+                    pi_ssh_user: None,
+                },
+                Trust::Serve,
+            ),
+            protect,
+        ));
+    let mut request = Request::builder().uri("/messages/view?filter=unread");
+    for (key, value) in [
+        ("tailscale-user-login", OWNER),
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "cors"),
+        ("sec-fetch-dest", "empty"),
+    ] {
+        request = request.header(key, value);
+    }
+    let response = router
+        .clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_SECURITY_POLICY],
+        ACTION_CSP
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .as_ref(),
+        inbox::locked_fragment().as_bytes()
+    );
+    // A top-level navigation never receives a bare fragment.
+    let mut request = Request::builder().uri("/messages/view");
+    for (key, value) in [
+        ("tailscale-user-login", OWNER),
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "navigate"),
+        ("sec-fetch-dest", "document"),
+    ] {
+        request = request.header(key, value);
+    }
+    assert_eq!(
+        router
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn gateway_identity_reaches_handlers_only_after_the_peer_lookup() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let path = std::path::PathBuf::from("/tmp")
+        .join(format!("portfolio-view-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let helper = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut byte = [0u8; 1];
+        while byte != *b"\n" && stream.read(&mut byte).await.unwrap() != 0 {
+            request.push(byte[0]);
+        }
+        stream
+            .write_all(b"{\"ok\":true,\"login\":\"owner@example.test\"}\n")
+            .await
+            .unwrap();
+    });
+    let (_, status) = watch::channel(Status::initial());
+    let state = App {
+        viewers: Arc::new(parse_viewers(OWNER).unwrap()),
+        inbox_readers: Arc::new(HashSet::new()),
+        inbox_admins: Arc::new(HashSet::new()),
+        admin_origin: None,
+        whois: Some(Arc::new(identity::Whois::new(path.clone()))),
+        status,
+        probes: None,
+        pi_machine: None,
+        pi_ssh_user: None,
+    };
+    let router = Router::new()
+        .route(
+            "/api/status",
+            get(|headers: HeaderMap| async move {
+                single_header(&headers, "tailscale-user-login")
+                    .unwrap_or("none")
+                    .to_owned()
+            }),
+        )
+        .layer(middleware::from_fn_with_state(
+            (state, Trust::Gateway),
+            protect,
+        ));
+    // The handler sees the login the peer lookup proved, not the client's value.
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/api/status")
+                .header("x-portfolio-peer", "100.64.9.9")
+                .header("tailscale-user-login", "intruder@example.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+        OWNER.as_bytes()
+    );
+    helper.await.unwrap();
+    std::fs::remove_file(&path).ok();
 }
 
 #[tokio::test]

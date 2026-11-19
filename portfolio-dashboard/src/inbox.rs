@@ -119,21 +119,24 @@ fn escape(value: &str, output: &mut String) {
     }
 }
 
-pub(super) fn locked_page() -> Html<String> {
+fn page_head(control: &str) -> String {
+    format!(
+        r#"<header class="page-head"><div><p class="eyebrow">Private inbox</p><h1>Contact messages</h1></div>{control}</header>"#
+    )
+}
+
+/// The Messages view when no passkey session is active. It is served inside
+/// the single-page shell and swapped in place after the session ends.
+pub(super) fn locked_fragment() -> String {
     let panel = include_str!("passkey-panel.html")
         .replace(
             "Checking your session…",
             "This inbox is locked. Unlock it to view and manage contact submissions.",
         )
         .replace("Sign in with passkey", "Unlock with passkey");
-    let entries = format!(
-        r#"<section id="inbox-locked">{panel}<noscript>Enable JavaScript to unlock with a passkey.</noscript></section>"#
-    );
-    Html(
-        include_str!("messages.html")
-            .replace("{{BADGE}}", "")
-            .replace("{{LOCK_CONTROL}}", "")
-            .replace("{{ENTRIES}}", &entries),
+    format!(
+        r#"<div id="inbox-view">{head}<section id="inbox-locked">{panel}<noscript>Enable JavaScript to unlock with a passkey.</noscript></section></div>"#,
+        head = page_head(""),
     )
 }
 
@@ -240,24 +243,12 @@ fn render(
         ));
     }
     html.push_str("</nav>");
-    let digits = if unread > 99 {
-        "99+".into()
-    } else {
-        unread.to_string()
-    };
-    let badge = format!(
-        r#"<span class="unread-count" aria-label="{unread} unread of {total} total" title="{unread} unread of {total} total">{digits}</span>"#
-    );
-    Ok(include_str!("messages.html")
-        .replace("{{BADGE}}", &badge)
-        .replace(
-            "{{LOCK_CONTROL}}",
-            r#"<button id="inbox-lock" type="button" disabled>Lock inbox</button>"#,
-        )
-        .replace(
-            "{{ENTRIES}}",
-            &format!(r#"<div id="inbox-notice" role="status"></div>{html}"#),
-        ))
+    // Counts travel as data so the shell can show the unread badge without a
+    // second archive read, and the actions stay server-rendered.
+    Ok(format!(
+        r#"<div id="inbox-view" data-unread="{unread}" data-total="{total}">{head}<div id="inbox-notice" role="status"></div>{html}</div>"#,
+        head = page_head(r#"<button id="inbox-lock" type="button" disabled>Lock inbox</button>"#),
+    ))
 }
 
 fn open_archive() -> io::Result<std::fs::File> {
@@ -275,11 +266,13 @@ pub(super) fn read_snapshot(before: Option<u64>) -> io::Result<Page> {
     read_page(open_archive()?, before)
 }
 
-pub(super) async fn messages(
-    State(app): State<App>,
+/// The protected Messages view. Both the standalone page and the in-page
+/// swap render it here, so they can never disagree about filters or roles.
+async fn fragment(
+    app: App,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
-) -> Response {
+    query: Option<String>,
+) -> Result<String, Box<Response>> {
     let mut unread_only = false;
     let mut before = None;
     if let Some(query) = query {
@@ -289,24 +282,24 @@ pub(super) async fn messages(
                     if before.is_none() && n.bytes().all(|b| b.is_ascii_digit()) =>
                 {
                     let Ok(offset) = n.parse::<u64>() else {
-                        return StatusCode::BAD_REQUEST.into_response();
+                        return Err(Box::new(StatusCode::BAD_REQUEST.into_response()));
                     };
                     before = Some(offset);
                 }
                 Some(("filter", "unread")) if !unread_only => unread_only = true,
-                _ => return StatusCode::BAD_REQUEST.into_response(),
+                _ => return Err(Box::new(StatusCode::BAD_REQUEST.into_response())),
             }
         }
     }
     let Ok(dir) = reader::owner_dir(&headers) else {
-        return StatusCode::FORBIDDEN.into_response();
+        return Err(Box::new(StatusCode::FORBIDDEN.into_response()));
     };
     let can_mark = app.admin_origin.is_some();
     let admin = can_mark
         && single_header(&headers, "tailscale-user-login")
             .is_some_and(|login| app.inbox_admins.contains(login));
     let Ok(slot) = reader::SCAN_SLOTS.try_acquire() else {
-        return StatusCode::TOO_MANY_REQUESTS.into_response();
+        return Err(Box::new(StatusCode::TOO_MANY_REQUESTS.into_response()));
     };
     let result = tokio::task::spawn_blocking(move || {
         let _slot = slot;
@@ -324,8 +317,31 @@ pub(super) async fn messages(
     })
     .await;
     match result {
-        Ok(Ok(html)) => Html(html).into_response(),
-        _ => unavailable(),
+        Ok(Ok(html)) => Ok(html),
+        _ => Err(Box::new(unavailable())),
+    }
+}
+
+pub(super) async fn messages(
+    State(app): State<App>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Response {
+    match fragment(app, headers, query).await {
+        Ok(html) => shell(VIEW_MESSAGES, &html).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// The view alone, for the shell's in-page navigation.
+pub(super) async fn view(
+    State(app): State<App>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Response {
+    match fragment(app, headers, query).await {
+        Ok(html) => Html(html).into_response(),
+        Err(response) => *response,
     }
 }
 
@@ -390,8 +406,9 @@ mod tests {
         );
         assert!(html.contains(r#"class="mark-form" method="post""#));
         assert!(!html.contains(r#"target="_blank""#));
-        let locked = locked_page().0;
+        let locked = locked_fragment();
         assert!(locked.contains("Unlock with passkey"));
+        assert!(locked.contains(r#"id="inbox-locked""#));
         assert!(!locked.contains("mark-form") && !locked.contains("remove-form"));
         data.extend(self::line("new"));
         data.extend(b"{\"name\":");

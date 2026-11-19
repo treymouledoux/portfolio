@@ -23,9 +23,13 @@ function documentFor() {
     .replaceAll("{id}", target).replaceAll("{label}", label);
   const entries = `<div id="inbox-notice" role="status"></div>
     <form class="mark-form" method="post" action="/messages/read/${id}?end=34"><button disabled>Mark as read</button></form>
-    ${form("delete", id, "Remove message")}${form("delete-all", "", "Remove all messages")}`;
-  return source("messages.html").replace("{{ENTRIES}}", entries)
-    .replace("{{BADGE}}", " 1").replace("{{LOCK_CONTROL}}", '<button id="inbox-lock" disabled>Lock inbox</button>');
+    ${form("delete", id, "Remove message")}${form("delete-all", "", "Remove all messages")}
+    <button id="inbox-lock" type="button" disabled>Lock inbox</button>`;
+  // app.js is served empty here, so the inbox falls back to a document reload.
+  return source("app.html").replace("{{TITLE}}", "Messages")
+    .replace("{{OVERVIEW_HIDDEN}}", " hidden").replace("{{MESSAGES_HIDDEN}}", "")
+    .replace("{{OVERVIEW_CURRENT}}", "").replace("{{MESSAGES_CURRENT}}", ' aria-current="page"')
+    .replace("{{MESSAGES}}", `<div id="inbox-view" data-unread="1" data-total="1">${entries}</div>`);
 }
 
 async function fixture(browser, javaScriptEnabled = true) {
@@ -43,6 +47,8 @@ async function fixture(browser, javaScriptEnabled = true) {
     }
     if (["/passkey.js","/hold-delete.js","/messages.js","/messages.css","/dashboard.css"].includes(url.pathname))
       return route.fulfill({contentType:url.pathname.endsWith("css") ? "text/css" : "text/javascript",body:source(url.pathname.slice(1))});
+    if (["/app.js","/dashboard.js"].includes(url.pathname))
+      return route.fulfill({contentType:"text/javascript", body:""});
     if (url.pathname === "/messages/auth/session") return route.fulfill({status:locked ? 403 : 200,json:{ok: !locked}});
     if (url.pathname === "/messages/auth/lock") { locked = true; return route.fulfill({json:{ok:true}}); }
     if (url.pathname === "/messages/delete-all") return route.fulfill({json:{id:bulkId,count:3}});
@@ -183,8 +189,8 @@ async function run() {
     expired.expire();
     await expired.page.evaluate(() => {
       window.dispatchEvent(new PageTransitionEvent("pagehide", {persisted:true}));
-      if (!document.getElementById("inbox").hidden) throw Error("history exposed private content");
-      window.dispatchEvent(new PageTransitionEvent("pageshow", {persisted:true}));
+      if (!document.getElementById("inbox-view").hidden) throw Error("history exposed private content");
+      document.dispatchEvent(new Event("visibilitychange"));
     });
     await expired.page.getByRole("heading", {name:"Locked"}).waitFor();
     assert.equal(expired.page.url(), origin + "/messages");
