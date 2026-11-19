@@ -483,6 +483,8 @@ async fn one_document_carries_both_views_and_messages_swap_in_as_a_fragment() {
     assert!(overview.contains(r#"<section id="view-messages" aria-label="Messages" hidden>"#));
     assert!(overview.contains(r#"<a href="/messages" data-view="messages">"#));
     assert!(overview.contains(r#"aria-current="page">Overview</a>"#));
+    // One header control reports the passkey session on every view.
+    assert!(overview.contains(r#"id="session-badge""#));
     assert!(!overview.contains("{{"));
     // The messages view needs no session; the passkey panel lives in Settings.
     let messages = shell(VIEW_MESSAGES, "").0;

@@ -50,6 +50,37 @@ body {
   gap: 1rem;
   min-height: 4.25rem;
 }
+.masthead-tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+#session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.05rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #10191e;
+  color: var(--muted);
+  font: 0.72rem/1 var(--mono);
+  white-space: nowrap;
+}
+#session-badge[data-state="unlocked"] {
+  border-color: #2f6b62;
+  background: rgba(142, 230, 213, 0.08);
+  color: var(--accent);
+  cursor: pointer;
+}
+#session-badge[data-state="unlocked"]:hover { background: rgba(142, 230, 213, 0.15); }
+#session-badge .session-icon { font-size: 0.8rem; line-height: 1; }
+#session-badge .session-timer {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+#session-badge[data-state="unlocked"] .session-timer { color: var(--accent); }
+@media (max-width: 34rem) {
+  .masthead-tools { gap: 0.35rem; }
+  #session-badge { padding-inline: 0.45rem; font-size: 0.66rem; }
+}
 .brand { display: flex; align-items: center; gap: 0.8rem; min-width: 0; }
 .monogram {
   display: grid;
@@ -704,7 +735,19 @@ figure.chart figcaption { margin-top: 0.9rem; }
   color: var(--muted);
   font: 0.7rem/1.4 var(--mono);
 }
-.webterm-badge[data-state="good"] { border-color: #2f6b62; color: var(--accent); }
+.webterm[data-state="open"] {
+  border-color: #2f6b62;
+  background: linear-gradient(165deg, rgba(19, 39, 37, 0.85), rgba(8, 15, 18, 0.96));
+  box-shadow: 0 0 0 1px rgba(142, 230, 213, 0.07), 0 24px 48px -40px rgba(0, 0, 0, 0.95);
+}
+.webterm[data-state="open"] .webterm-head h3 { color: var(--accent); }
+.webterm[data-state="open"] .webterm-copy { display: none; }
+.webterm[data-state="open"] .webterm-screen { border-color: rgba(142, 230, 213, 0.18); }
+.webterm-badge[data-state="open"] {
+  border-color: #2f6b62;
+  background: rgba(142, 230, 213, 0.08);
+  color: var(--accent);
+}
 .webterm-copy { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
 .webterm-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .webterm-screen {

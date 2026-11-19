@@ -209,6 +209,14 @@ class ActionsTest(unittest.TestCase):
         with self.assertRaises(actions.Rejected):
             self.call("arm", session=self.session, operation="delete", id=FIRST_ID)
 
+    def test_session_reports_remaining_lifetime(self):
+        self.assertEqual(self.call("session", session=self.session)["expires_in"], 900)
+        self.now += 600
+        self.assertEqual(self.call("session", session=self.session)["expires_in"], 300)
+        self.now += 300
+        with self.assertRaises(actions.Rejected):
+            self.call("session", session=self.session)
+
     def test_reader_and_lock_cannot_erase(self):
         self.broker.admins = frozenset()
         self.assertTrue(self.call("session", session=self.session)["ok"])

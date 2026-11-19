@@ -70,7 +70,8 @@
       signIn.hidden = true;
       signOut.hidden = false;
       signOut.disabled = false;
-      status.textContent = "Passkey verified. Owner actions stay available for fifteen minutes.";
+      // The header badge carries the countdown; this card just reports access.
+      status.textContent = "Signed in for this browser.";
     }
 
     async function verify(register) {
@@ -90,6 +91,7 @@
           signIn.focus();
         } else {
           showUnlocked();
+          window.SessionBadge?.refresh?.();
         }
       } catch (error) {
         if (error.code === "closed") enrollment = "closed";
@@ -108,6 +110,7 @@
         const response = await request("lock");
         if (!response.ok && response.status !== 401 && response.status !== 403) throw Error();
         showLocked("Session locked. Owner actions need the passkey again.");
+        window.SessionBadge?.refresh?.();
       } catch {
         signOut.disabled = false;
         status.textContent = "Couldn’t lock the session. Check your connection and try again.";

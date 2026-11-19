@@ -124,13 +124,13 @@ fn page_head(control: &str) -> String {
     )
 }
 
-/// The archive itself is readable by default; this control is the only way to
-/// open the fifteen-minute session that lets the owner change anything.
+/// The archive itself is readable by default. Unlocking is offered here,
+/// beside the messages, but the header badge owns the session and its clock.
 fn lock_control(unlocked: bool) -> &'static str {
     if unlocked {
-        r#"<div class="lock-control"><button id="inbox-lock" type="button" data-state="unlocked" disabled>Lock inbox</button><p class="lock-note">Unlocked: marking, removal and removal of all messages.</p></div>"#
+        r#"<p class="lock-note">Unlocked — marking and removal enabled. Lock from the session badge above.</p>"#
     } else {
-        r#"<div class="lock-control"><button id="inbox-lock" type="button" data-state="locked" disabled>Unlock with passkey</button><p class="lock-note">Locked: viewing and export only.</p></div>"#
+        r#"<div class="lock-control"><button id="inbox-lock" type="button" disabled>Unlock with passkey</button><p class="lock-note">Locked: viewing and export only.</p></div>"#
     }
 }
 
@@ -399,8 +399,8 @@ mod tests {
             (16, 16),
         )
         .unwrap();
-        assert!(html.contains(r#"data-state="unlocked""#));
-        assert!(html.contains("Lock inbox"));
+        assert!(html.contains("Lock from the session badge"));
+        assert!(!html.contains(r#"id="inbox-lock""#));
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt; &amp; done"));
         assert!(!html.contains("<img"));
         assert!(!html.contains("/messages/action/"));

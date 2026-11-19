@@ -12,6 +12,7 @@
     <script src="/hold-delete.js" defer></script>
     <script src="/messages.js" defer></script>
     <script src="/settings.js" defer></script>
+    <script src="/session.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -21,11 +22,18 @@
           <span class="monogram" aria-hidden="true">tm</span>
           <span class="brand-text"><strong>Trey Mouledoux</strong><small>Homelab mesh node</small></span>
         </a>
-        <nav class="dashboard-tabs" id="dashboard-tabs" aria-label="Dashboard">
-          <a href="/" data-view="overview"{{OVERVIEW_CURRENT}}>Overview</a>
-          <a href="/messages" data-view="messages"{{MESSAGES_CURRENT}}>Messages<span class="unread-count" id="inbox-badge" hidden></span></a>
-          <a href="/settings" data-view="settings"{{SETTINGS_CURRENT}}>Settings</a>
-        </nav>
+        <div class="masthead-tools">
+          <nav class="dashboard-tabs" id="dashboard-tabs" aria-label="Dashboard">
+            <a href="/" data-view="overview"{{OVERVIEW_CURRENT}}>Overview</a>
+            <a href="/messages" data-view="messages"{{MESSAGES_CURRENT}}>Messages<span class="unread-count" id="inbox-badge" hidden></span></a>
+            <a href="/settings" data-view="settings"{{SETTINGS_CURRENT}}>Settings</a>
+          </nav>
+          <button type="button" id="session-badge" data-state="checking" disabled aria-label="Checking the passkey session">
+            <span class="session-icon" aria-hidden="true">🔒</span>
+            <span class="session-label">Checking session…</span>
+            <span class="session-timer" aria-hidden="true"></span>
+          </button>
+        </div>
       </div>
     </header>
     <main class="wrap" id="app">
@@ -153,7 +161,7 @@
               <code id="ssh-command" hidden></code>
             </div>
           </div>
-          <div class="webterm" id="webterm">
+          <div class="webterm" id="webterm" data-state="locked">
             <div class="webterm-head">
               <h3>Web terminal</h3>
               <span class="webterm-badge" id="webterm-badge">Locked</span>

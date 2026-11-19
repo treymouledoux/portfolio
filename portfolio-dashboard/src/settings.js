@@ -28,8 +28,9 @@
     if (!assertion) throw new Error("The passkey request was cancelled.");
     const finished = await post("/messages/auth/login-finish", {flow, credential: assertion.toJSON()});
     if (!finished.ok) throw new Error("That passkey was not accepted.");
-    // The passkey card reports the session this control just opened.
+    // The passkey card and the header badge report the session this just opened.
     window.PasskeyPanel?.refresh?.();
+    window.SessionBadge?.refresh?.();
   }
 
   // ---- Telemetry ---------------------------------------------------------
@@ -161,8 +162,10 @@
     terminalForm.hidden = !open;
     closeButton.hidden = !open;
     unlockButton.hidden = open;
-    badge.textContent = open ? "Connected" : "Locked";
-    badge.dataset.state = open ? "good" : "locked";
+    // An open shell is its own state, not just "not locked".
+    if (terminal) terminal.dataset.state = open ? "open" : "locked";
+    badge.textContent = open ? "Shell open" : "Locked";
+    badge.dataset.state = open ? "open" : "locked";
   }
 
   async function pump() {
@@ -242,6 +245,13 @@
     if (!session) return;
     navigator.sendBeacon?.("/api/terminal/close", new Blob([JSON.stringify({id: session})], {type: "application/json"}));
   });
+
+  // The header badge owns the session; a lock ends the shell it was guarding.
+  window.addEventListener("session:locked", () => {
+    window.PasskeyPanel?.refresh?.();
+    if (session) endSession("Session locked. Unlock again for a new shell.");
+  });
+  window.addEventListener("session:unlocked", () => window.PasskeyPanel?.refresh?.());
 
   if (settingsView) loadSettings();
 })();

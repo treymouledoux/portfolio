@@ -23,8 +23,7 @@ function documentFor() {
     .replaceAll("{id}", target).replaceAll("{label}", label);
   const entries = `<div id="inbox-notice" role="status"></div>
     <form class="mark-form" method="post" action="/messages/read/${id}?end=34"><button disabled>Mark as read</button></form>
-    ${form("delete", id, "Remove message")}${form("delete-all", "", "Remove all messages")}
-    <button id="inbox-lock" type="button" data-state="unlocked" disabled>Lock inbox</button>`;
+    ${form("delete", id, "Remove message")}${form("delete-all", "", "Remove all messages")}`;
   // app.js is served empty here, so the inbox falls back to a document reload.
   return source("app.html").replace("{{TITLE}}", "Messages")
     .replace("{{OVERVIEW_HIDDEN}}", " hidden").replace("{{MESSAGES_HIDDEN}}", "")
@@ -45,11 +44,12 @@ async function fixture(browser, javaScriptEnabled = true) {
       loads++;
       return route.fulfill({contentType:"text/html", body: locked ? "<h1>Locked</h1>" : documentFor()});
     }
-    if (["/passkey.js","/hold-delete.js","/messages.js","/messages.css","/dashboard.css"].includes(url.pathname))
+    if (["/passkey.js","/hold-delete.js","/messages.js","/session.js","/messages.css","/dashboard.css"].includes(url.pathname))
       return route.fulfill({contentType:url.pathname.endsWith("css") ? "text/css" : "text/javascript",body:source(url.pathname.slice(1))});
     if (["/app.js","/dashboard.js"].includes(url.pathname))
       return route.fulfill({contentType:"text/javascript", body:""});
-    if (url.pathname === "/messages/auth/session") return route.fulfill({status:locked ? 403 : 200,json:{ok: !locked}});
+    if (url.pathname === "/messages/auth/session")
+      return route.fulfill({status:locked ? 403 : 200, json: locked ? {error:"denied"} : {ok:true, expires_in:600}});
     if (url.pathname === "/messages/auth/lock") { locked = true; return route.fulfill({json:{ok:true}}); }
     if (url.pathname === "/messages/delete-all") return route.fulfill({json:{id:bulkId,count:3}});
     assert.equal(request.method(), "POST");
@@ -183,7 +183,8 @@ async function run() {
     assert.deepEqual(commits[1], { path: `/messages/action/delete-all/${bulkId}`, body: "hold=" + hold });
     assert.equal(page.url(), origin + "/messages");
     assert.equal(context.pages().length, 1);
-    await page.getByRole("button", {name:"Lock inbox"}).click();
+    // The header badge is the one lock action now.
+    await page.getByRole("button", {name:/Owner session/}).click();
     await page.getByRole("heading", {name:"Locked"}).waitFor();
     // An expired session drops the page back to its locked controls.
     const expired = await fixture(browser);

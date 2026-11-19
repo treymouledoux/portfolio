@@ -70,6 +70,7 @@ struct Reply {
     session: Option<String>,
     hold: Option<String>,
     open: Option<bool>,
+    expires_in: Option<u64>,
 }
 
 fn session(headers: &HeaderMap) -> Option<&str> {
@@ -293,7 +294,11 @@ fn auth_reply(step: &str, reply: Reply) -> Response {
             );
             response
         }
-        "cancel" | "session" => Json(json!({"ok":true})).into_response(),
+        // The header badge renders its countdown from what the broker knows.
+        "session" => {
+            Json(json!({"ok":true,"expires_in":reply.expires_in.unwrap_or(0)})).into_response()
+        }
+        "cancel" => Json(json!({"ok":true})).into_response(),
         _ => auth_error("unavailable"),
     }
 }
@@ -387,6 +392,23 @@ mod tests {
             .unwrap(),
         );
         assert!(enrollment.headers().get(header::SET_COOKIE).is_none());
+    }
+
+    #[tokio::test]
+    async fn session_reply_carries_the_remaining_lifetime() {
+        let response = auth_reply(
+            "session",
+            serde_json::from_value(json!({"ok":true,"expires_in":641})).unwrap(),
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers().get(header::SET_COOKIE).is_none());
+        let body = axum::body::to_bytes(response.into_body(), 512)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"ok":true,"expires_in":641})
+        );
     }
 
     #[test]

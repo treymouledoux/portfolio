@@ -283,7 +283,9 @@ class Broker:
             raise Rejected()
         basic.add("session")
         if action == "session" and fields == basic:
-            return {"ok": True}
+            # The dashboard's header countdown is the only place that knows how
+            # long the session has left, so report the remaining whole seconds.
+            return {"ok": True, "expires_in": max(0, int(self.sessions[session][0] - now))}
         if action == "lock" and fields == basic:
             del self.sessions[session]
             for key, value in list(self.holds.items()):
