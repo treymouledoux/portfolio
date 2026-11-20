@@ -4,6 +4,12 @@
   // Another control on the page may sign in on its own; init() then refreshes
   // this panel's state instead of binding a second time.
   let reread = () => {};
+  // The header badge can start the same sign-in; until a supported browser
+  // binds the panel this reports why nothing happened.
+  let unlockWithPasskey = async () => ({
+    ok: false,
+    message: "Open this private page in a current browser with passkey support.",
+  });
 
   // The panel lives in Settings: it reports the session, signs in, locks and
   // enrolls. Enrollment stays closed until a root operator opens a window.
@@ -93,11 +99,13 @@
           showUnlocked();
           window.SessionBadge?.refresh?.();
         }
+        return { ok: true };
       } catch (error) {
         if (error.code === "closed") enrollment = "closed";
         status.textContent = error.name === "NotAllowedError"
           ? "The passkey request was cancelled or timed out."
           : (error.message || "Passkey verification failed.");
+        return { ok: false, message: status.textContent };
       } finally {
         signIn.disabled = false;
         syncEnroll();
@@ -135,6 +143,7 @@
     signOut.addEventListener("click", lockSession);
     enroll.addEventListener("click", () => verify(true));
     reread = refresh;
+    unlockWithPasskey = () => verify(false);
     refresh();
     // The broker only accepts a first registration while a root operator has an
     // enrollment window open, so setup stays unavailable until it reports one.
@@ -150,7 +159,7 @@
       });
   }
 
-  window.PasskeyPanel = { init, refresh: () => reread() };
+  window.PasskeyPanel = { init, refresh: () => reread(), unlock: () => unlockWithPasskey() };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

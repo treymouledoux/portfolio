@@ -10,7 +10,8 @@
   const timer = badge.querySelector(".session-timer");
   let state = "checking";
   let expiresAt = 0;
-  let checking = false;
+  let inFlight = null;
+  let unlocking = false;
 
   const request = step => fetch("/messages/auth/" + step, {
     method: "POST",
@@ -29,22 +30,33 @@
   function paint() {
     badge.dataset.state = state;
     if (state === "unlocked") {
+      const seconds = remaining();
       icon.textContent = "🔓";
       label.textContent = "Admin session";
-      timer.textContent = expiresAt ? clock(remaining()) : "";
+      timer.textContent = expiresAt ? clock(seconds) : "";
+      // The last minute turns amber, so a session never lapses mid-action unwarned.
+      badge.toggleAttribute("data-warning", Boolean(expiresAt) && seconds <= 60);
       badge.disabled = false;
       badge.title = "Lock this session now";
       badge.setAttribute("aria-label",
-        `Admin session${expiresAt ? `, ${clock(remaining())} left` : ""}. Activate to lock.`);
+        `Admin session${expiresAt ? `, ${clock(seconds)} left` : ""}. Activate to lock.`);
       return;
     }
     icon.textContent = state === "checking" ? "…" : "🔒";
     label.textContent = state === "checking" ? "Checking session…" : "Locked · read-only";
     timer.textContent = "";
-    badge.disabled = true;
-    badge.removeAttribute("title");
-    badge.setAttribute("aria-label",
-      state === "checking" ? "Checking the passkey session" : "Passkey locked. Read-only.");
+    badge.toggleAttribute("data-warning", false);
+    // A locked badge is also the way back in: one click asks the broker for a
+    // passkey challenge, the same ceremony the Settings card runs.
+    badge.disabled = state === "checking";
+    if (state === "checking") {
+      badge.removeAttribute("title");
+    } else {
+      badge.title = "Unlock with your passkey";
+    }
+    badge.setAttribute("aria-label", state === "checking"
+      ? "Checking the passkey session"
+      : "Passkey locked. Read-only. Activate to unlock with your passkey.");
   }
 
   // Only a state change is announced; the countdown itself stays visual.
@@ -66,29 +78,31 @@
   }
 
   // Another tab, the Settings card or a host action can change the session, so
-  // the browser asks the broker instead of trusting its own timer alone.
-  async function refresh() {
-    if (checking) return;
-    checking = true;
-    try {
-      const response = await request("session");
-      if (!response.ok) {
-        set("locked");
-        return;
+  // the browser asks the broker instead of trusting its own timer alone. One
+  // request at a time: every caller waits on the same answer.
+  function refresh() {
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
+      try {
+        const response = await request("session");
+        if (!response.ok) {
+          set("locked");
+          return;
+        }
+        const body = await response.json().catch(() => ({}));
+        const seconds = Number(body.expires_in);
+        set("unlocked", Number.isFinite(seconds) ? seconds : 0);
+      } catch {
+        // Offline keeps whatever was last known instead of inventing a state.
+        if (state === "checking") set("locked");
+      } finally {
+        inFlight = null;
       }
-      const body = await response.json().catch(() => ({}));
-      const seconds = Number(body.expires_in);
-      set("unlocked", Number.isFinite(seconds) ? seconds : 0);
-    } catch {
-      // Offline keeps whatever was last known instead of inventing a state.
-      if (state === "checking") set("locked");
-    } finally {
-      checking = false;
-    }
+    })();
+    return inFlight;
   }
 
-  badge.addEventListener("click", async () => {
-    if (state !== "unlocked") return;
+  async function lock() {
     badge.disabled = true;
     try {
       await request("lock");
@@ -96,12 +110,49 @@
       // The countdown below still expires the badge on its own.
     }
     set("locked");
+  }
+
+  // Unlocking from the badge runs the Settings panel's ceremony, so both entry
+  // points share one passkey flow and one status line.
+  async function unlock() {
+    if (unlocking) return;
+    const signIn = window.PasskeyPanel?.unlock;
+    if (typeof signIn !== "function") return;
+    unlocking = true;
+    badge.disabled = true;
+    icon.textContent = "🔓";
+    label.textContent = "Unlocking…";
+    timer.textContent = "";
+    badge.toggleAttribute("data-warning", false);
+    badge.setAttribute("aria-label", "Waiting for the passkey prompt");
+    let result = null;
+    try {
+      result = await signIn();
+    } catch {
+      // A thrown ceremony reads the same as a refused one below.
+    } finally {
+      unlocking = false;
+    }
+    if (result?.ok) {
+      await refresh();
+      if (state !== "unlocked") set("locked");
+      return;
+    }
+    set("locked");
+    badge.title = result?.message || "Couldn’t unlock with the passkey. Try again.";
+  }
+
+  badge.addEventListener("click", () => {
+    if (state === "unlocked") lock();
+    else if (state === "locked") unlock();
   });
 
   setInterval(() => {
     if (state !== "unlocked" || !expiresAt) return;
-    if (remaining() > 0) {
-      timer.textContent = clock(remaining());
+    const seconds = remaining();
+    if (seconds > 0) {
+      timer.textContent = clock(seconds);
+      badge.toggleAttribute("data-warning", seconds <= 60);
       return;
     }
     set("locked");

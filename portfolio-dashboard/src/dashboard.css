@@ -77,6 +77,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 #session-badge[data-state="unlocked"] .session-timer { color: var(--accent); }
+#session-badge[data-state="locked"]:not(:disabled) { cursor: pointer; }
+#session-badge[data-state="locked"]:not(:disabled):hover {
+  border-color: var(--line-strong);
+  background: #16232a;
+  color: var(--text);
+}
+/* The last minute of a session turns amber, so the countdown is no surprise. */
+#session-badge[data-warning] {
+  border-color: #8c6a28;
+  background: rgba(240, 191, 105, 0.13);
+  color: #f2c878;
+}
+#session-badge[data-warning] .session-timer { color: #f2c878; }
 @media (max-width: 34rem) {
   .masthead-tools { gap: 0.35rem; }
   #session-badge { padding-inline: 0.45rem; font-size: 0.66rem; }
