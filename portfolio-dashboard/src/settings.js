@@ -514,8 +514,13 @@
   window.addEventListener("session:settled", syncSession);
   syncSession();
 
-  if (settingsView && !settingsView.hidden) {
+  // The tab swaps views in place, so the panel reads its stored values when it
+  // is shown rather than only when the page was rendered on this view.
+  function load() {
     loadSettings();
     loadSessionLength();
   }
+
+  window.SettingsPanel = {load};
+  if (settingsView && !settingsView.hidden) load();
 })();

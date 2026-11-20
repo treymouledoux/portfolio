@@ -17,8 +17,9 @@
   let loaded = null;
   let inflight = null;
 
-  // Only the two dashboard views are handled here; every other link navigates.
-  const scoped = pathname => pathname === "/" || pathname === "/messages";
+  // Every dashboard view lives in this document, so these links swap the view
+  // instead of reloading it; any other link is a normal navigation.
+  const scoped = pathname => pathname === "/" || pathname === "/messages" || pathname === "/settings";
 
   function focusHeading(view) {
     const heading = view?.querySelector("h1");
@@ -81,6 +82,16 @@
     if (focus) focusHeading(views.overview);
   }
 
+  // The Settings panel is already in the document; only the stored values it
+  // reports are fetched, so the tab opens as fast as the other two.
+  function showSettings({push = false, replace = false, focus = false} = {}) {
+    if (push) history.pushState({view: "settings"}, "", "/settings");
+    else if (replace) history.replaceState({view: "settings"}, "", "/settings");
+    markCurrent("settings");
+    if (focus) focusHeading(views.settings);
+    window.SettingsPanel?.load?.();
+  }
+
   function showDenied() {
     if (!views.messages) return;
     views.messages.replaceChildren(denied.content.cloneNode(true));
@@ -135,7 +146,7 @@
     const url = new URL(href, location.origin);
     if (url.pathname === "/") showOverview(options);
     else if (url.pathname === "/messages") loadMessages(url, options);
-    else location.assign(url.href);
+    else showSettings(options);
   }
 
   document.addEventListener("click", event => {
@@ -162,7 +173,7 @@
   };
 
   if (views.settings && !views.settings.hidden) {
-    // Settings is a full navigation, so this only fixes up the title and tab.
+    // A deep link still arrives server-rendered; this only fixes up the tab.
     markCurrent("settings");
   } else if (views.messages && !views.messages.hidden) {
     loaded = location.pathname + location.search;
