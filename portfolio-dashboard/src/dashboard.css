@@ -723,6 +723,7 @@ figure.chart figcaption { margin-top: 0.9rem; }
 
 /* Web terminal */
 .webterm {
+  position: relative;
   display: grid;
   gap: 0.8rem;
   margin-top: 1rem;
@@ -768,6 +769,7 @@ figure.chart figcaption { margin-top: 0.9rem; }
 .webterm-copy { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
 .webterm-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .webterm-screen {
+  position: relative;
   margin: 0;
   min-height: 12rem;
   max-height: 22rem;
@@ -783,18 +785,30 @@ figure.chart figcaption { margin-top: 0.9rem; }
   white-space: pre;
   word-break: normal;
 }
-.webterm-input { display: flex; align-items: center; gap: 0.5rem; }
-.webterm-input input {
-  flex: 1;
-  min-height: 2.2rem;
-  padding: 0.35rem 0.6rem;
-  border: 1px solid var(--line-strong);
-  border-radius: 0.5rem;
-  background: #0d1519;
-  color: var(--text);
-  font: 0.8rem var(--mono);
+/* Typing happens in the grid: this field only carries the keys, so it stays
+   focusable but invisible behind the screen. */
+.webterm-keys {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
+  pointer-events: none;
 }
-.webterm-prompt { color: var(--accent); font: 0.85rem var(--mono); }
+/* The caret follows the shell's own cursor, so input looks like a terminal
+   rather than a box beside one. It dims whenever the keys are not captured. */
+.webterm-caret {
+  position: absolute;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.9;
+  pointer-events: none;
+  animation: webterm-blink 1.1s steps(1, end) infinite;
+}
+.webterm:not(.is-typing) .webterm-caret { animation: none; opacity: 0.3; }
+@keyframes webterm-blink { 50% { opacity: 0; } }
 .webterm-label {
   position: absolute;
   width: 1px;

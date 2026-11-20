@@ -185,16 +185,26 @@
 
   // ---- Web terminal ------------------------------------------------------
   const screen = document.getElementById("webterm-screen");
-  const terminalForm = document.getElementById("webterm-form");
-  const terminalLine = document.getElementById("webterm-line");
+  const keys = document.getElementById("webterm-keys");
   const terminalStatus = document.getElementById("webterm-status");
   const unlockButton = document.getElementById("webterm-unlock");
   const closeButton = document.getElementById("webterm-close");
   const badge = document.getElementById("webterm-badge");
   const decoder = new TextDecoder();
+  // The caret is drawn on the grid at the shell's own cursor, so the input line
+  // is the terminal instead of a field under it.
+  const caret = document.createElement("span");
+  caret.className = "webterm-caret";
+  caret.setAttribute("aria-hidden", "true");
+  const metrics = {charWidth: 8, line: 19};
   let session = null;
   let term = null;
   let offset = 0;
+  // Keys wait a beat and go together, so fast typing, a paste and an escape
+  // sequence all reach the shell in the order they were pressed.
+  let pending = "";
+  let timer = 0;
+  let sending = false;
 
   function say(text) {
     if (terminalStatus) terminalStatus.textContent = text;
@@ -208,7 +218,22 @@
     // Stay where the reader scrolled: only follow the tail when already there.
     const tail = screen.scrollTop + screen.clientHeight >= screen.scrollHeight - line - 4;
     term.render();
+    // render() rewrites the text, so the caret goes back onto the grid after it.
+    screen.appendChild(caret);
+    placeCaret();
     if (tail) screen.scrollTop = screen.scrollHeight;
+  }
+
+  // Absolute offsets inside the scrolling screen, so the caret moves with the
+  // text it belongs to instead of floating over the viewport.
+  function placeCaret() {
+    const cursor = term?.cursor?.();
+    if (!cursor) return;
+    const style = getComputedStyle(screen);
+    caret.style.left = `${(parseFloat(style.paddingLeft) || 0) + cursor.x * metrics.charWidth}px`;
+    caret.style.top = `${(parseFloat(style.paddingTop) || 0) + cursor.line * metrics.line}px`;
+    caret.style.width = `${metrics.charWidth}px`;
+    caret.style.height = `${metrics.line}px`;
   }
 
   function append(text) {
@@ -240,6 +265,9 @@
     }
     const height = parseFloat(style.maxHeight) || 352;
     const line = parseFloat(style.lineHeight) || 19;
+    // The caret is placed in the same cell the shell measured with.
+    metrics.charWidth = width;
+    metrics.line = line;
     return {
       cols: box > 240 ? Math.max(40, Math.floor(box / width)) : 100,
       // One row of slack keeps the last line above a scrollbar.
@@ -254,7 +282,7 @@
 
   function renderTerminal() {
     screen.hidden = !shell;
-    terminalForm.hidden = !shell;
+    keys.hidden = !shell;
     closeButton.hidden = !shell;
     unlockButton.hidden = shell;
     unlockButton.textContent = unlocked ? "Open shell" : "Unlock with passkey";
@@ -303,9 +331,15 @@
 
   async function startSession() {
     say("Opening a shell…");
+    // The grid has to be measured on the page, since the PTY wraps where the
+    // page does; it stays shut again if the opener is refused.
+    shell = true;
+    renderTerminal();
     const {cols, rows} = size();
     const response = await post("/api/terminal/open", {cols, rows}).catch(() => null);
     if (response?.status === 401 || response?.status === 403) {
+      shell = false;
+      renderTerminal();
       try {
         await unlock();
       } catch (error) {
@@ -315,6 +349,8 @@
       return startSession();
     }
     if (!response?.ok) {
+      shell = false;
+      renderTerminal();
       say(response?.status === 503
         ? "The host agent is not installed or did not answer."
         : "The shell could not be opened.");
@@ -323,18 +359,22 @@
     const body = await response.json();
     session = body.id;
     offset = 0;
-    shell = true;
     term = window.WebTerm?.create(screen, cols, rows) ?? null;
     renderTerminal();
     paint();
-    say("Connected. Line input; the agent runs a real shell as your account.");
-    terminalLine.focus();
+    say("Connected. Type in the terminal: arrows, Tab and Ctrl+C reach the shell.");
+    keys.focus();
     pump();
   }
 
   function endSession(text) {
     session = null;
     shell = false;
+    pending = "";
+    clearTimeout(timer);
+    timer = 0;
+    keys.value = "";
+    keys.blur();
     renderTerminal();
     say(text);
   }
@@ -346,13 +386,107 @@
     endSession("Session closed.");
   });
 
-  terminalForm?.addEventListener("submit", async event => {
+  // One write at a time keeps the shell's input in the order it was typed;
+  // keys pressed while a write is in flight are held for the next one.
+  function send(data) {
+    if (!session || !data) return;
+    pending += data;
+    if (pending.length >= 512) flush();
+    else timer ||= setTimeout(flush, 8);
+  }
+
+  async function flush() {
+    clearTimeout(timer);
+    timer = 0;
+    if (!session || sending || !pending) return;
+    const current = session;
+    const data = pending;
+    pending = "";
+    sending = true;
+    const response = await post("/api/terminal/write", {id: current, data}).catch(() => null);
+    sending = false;
+    if (session !== current) return;
+    if (!response?.ok) {
+      endSession("The terminal closed.");
+      return;
+    }
+    if (pending) flush();
+  }
+
+  // Keys a shell reads as escape or control sequences leave the field empty, so
+  // they are sent as the bytes a terminal would send.
+  const SEQUENCES = {
+    Enter: "\r",
+    Backspace: "\x7f",
+    Delete: "\x1b[3~",
+    Insert: "\x1b[2~",
+    Tab: "\t",
+    Escape: "\x1b",
+    ArrowUp: "\x1b[A",
+    ArrowDown: "\x1b[B",
+    ArrowRight: "\x1b[C",
+    ArrowLeft: "\x1b[D",
+    Home: "\x1b[H",
+    End: "\x1b[F",
+    PageUp: "\x1b[5~",
+    PageDown: "\x1b[6~",
+  };
+
+  keys?.addEventListener("keydown", event => {
+    if (!session || event.isComposing) return;
+    // Copy, paste and the browser's own chords stay with the browser.
+    if (event.metaKey) return;
+    if (event.ctrlKey && event.shiftKey) return;
+    if (event.ctrlKey && event.key.length === 1) {
+      const letter = event.key.toLowerCase();
+      if (letter >= "a" && letter <= "z") {
+        event.preventDefault();
+        send(String.fromCharCode(letter.charCodeAt(0) - 96));
+        return;
+      }
+    }
+    if (event.altKey) return;
+    const sequence = SEQUENCES[event.key];
+    if (!sequence) return;
     event.preventDefault();
+    send(sequence);
+  });
+
+  // Ordinary characters arrive here, which is also how an input method, a dead
+  // key and a mobile keyboard deliver theirs.
+  keys?.addEventListener("input", () => {
     if (!session) return;
-    const line = terminalLine.value;
-    terminalLine.value = "";
-    const response = await post("/api/terminal/write", {id: session, data: `${line}\n`}).catch(() => null);
-    if (!response?.ok) endSession("The terminal closed.");
+    const text = keys.value;
+    if (!text) return;
+    keys.value = "";
+    send(text);
+  });
+
+  // A paste is one write, in brackets when the shell asked for them so a
+  // multi-line paste reaches the line buffer instead of running at once.
+  keys?.addEventListener("paste", event => {
+    if (!session) return;
+    const text = event.clipboardData?.getData("text");
+    if (!text) return;
+    event.preventDefault();
+    const lines = text.replace(/\r\n?/g, "\n");
+    send(term?.paste ? `\x1b[200~${lines}\x1b[201~` : lines.replace(/\n/g, "\r"));
+  });
+
+  keys?.addEventListener("blur", () => {
+    terminal?.classList.remove("is-typing");
+    if (session) say("Click the terminal to type again.");
+  });
+  keys?.addEventListener("focus", () => {
+    terminal?.classList.add("is-typing");
+    if (session) say("Typing into the shell. Arrows, Tab and Ctrl+C reach it.");
+  });
+
+  // The screen is what looks typeable, so a click on it starts typing; a click
+  // that was selecting text leaves the selection alone.
+  screen?.addEventListener("pointerup", () => {
+    if (!session) return;
+    if (!window.getSelection()?.toString()) keys.focus();
   });
 
   window.addEventListener("beforeunload", () => {

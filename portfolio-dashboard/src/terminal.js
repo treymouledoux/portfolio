@@ -24,6 +24,7 @@
       this.bottom = this.rows - 1;
       this.wrap = false;
       this.saved = null;
+      this.paste = false;
       this.state = "text";
       this.params = "";
     }
@@ -216,6 +217,8 @@
           if (on) this.enterAlt();
           else this.leaveAlt();
         }
+        // Bracketed paste: the shell can take a multi-line paste whole.
+        if (value === 2004) this.paste = on;
       }
     }
 
@@ -397,8 +400,15 @@
       this.bottom = this.rows - 1;
       this.wrap = false;
       this.saved = null;
+      this.paste = false;
       this.state = "text";
       this.params = "";
+    }
+
+    /// Where the shell left its cursor, counted in the rows as they are drawn:
+    /// the scrollback above the grid comes first.
+    cursor() {
+      return {x: this.x, y: this.y, line: this.scrollback.length + this.y};
     }
 
     render() {

@@ -173,13 +173,8 @@
               <button type="button" id="webterm-unlock">Unlock with passkey</button>
               <button type="button" id="webterm-close" hidden>Close session</button>
             </div>
-            <pre class="webterm-screen" id="webterm-screen" hidden tabindex="0" aria-label="Terminal output"></pre>
-            <form class="webterm-input" id="webterm-form" hidden>
-              <label class="webterm-label" for="webterm-line">Command</label>
-              <span class="webterm-prompt" aria-hidden="true">$</span>
-              <input id="webterm-line" autocomplete="off" autocapitalize="off" spellcheck="false">
-              <button type="submit">Send</button>
-            </form>
+            <pre class="webterm-screen" id="webterm-screen" hidden tabindex="0" aria-label="Terminal"></pre>
+            <textarea class="webterm-keys" id="webterm-keys" hidden rows="1" aria-label="Terminal input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
             <p class="webterm-status" id="webterm-status" role="status" aria-live="polite"></p>
           </div>
         </section>
