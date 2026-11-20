@@ -64,7 +64,9 @@ To receive a copy of each new contact submission, create `/etc/credstore/portfol
 }
 ```
 
-The list is read for each delivery, so saving one needs no restart. Up to ten addresses are delivered; duplicates and unparseable entries are skipped. A missing, empty or unreadable list leaves the credential's `to` in use, so an existing host keeps notifying until an owner saves one.
+The list is read for each delivery, so saving one needs no restart. Up to ten addresses are delivered; duplicates and unparseable entries are skipped. A missing, empty or unreadable list leaves the credential's `to` in use, so an existing host keeps notifying until an owner saves one, and the journal says when that fallback happened.
+
+The production unit runs with a private read-only `/etc` (`90-stable-resolver.conf`), so a host that uses it must also install `contact-recipients.conf` as `96-contact-recipients.conf` in `/etc/systemd/system/portfolio.service.d/`. Bind the directory rather than the file, because the dashboard's host agent replaces the file atomically.
 
 After deploying the updated unit, restart it with `sudo systemctl restart portfolio.service` to load the private credentials. Submit a short test message on the site and check your inbox.
 

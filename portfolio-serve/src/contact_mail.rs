@@ -97,11 +97,19 @@ impl ContactMailer {
 
     /// The saved list wins; a missing, empty or unreadable file leaves the
     /// credential's own address in place rather than silently dropping mail.
+    /// The journal names the path, because a sandbox that hides the file looks
+    /// like an ordinary single delivery and hides the mistake.
     fn recipients(&self) -> Vec<Mailbox> {
-        match read_recipients(&self.path) {
-            Some(saved) if !saved.is_empty() => saved,
-            _ => self.fallback.clone(),
-        }
+        let reason = match read_recipients(&self.path) {
+            Some(saved) if !saved.is_empty() => return saved,
+            Some(_) => "empty",
+            None => "unreadable",
+        };
+        eprintln!(
+            "Contact recipients at {} are {reason}; using the mail credential's address",
+            self.path.display()
+        );
+        self.fallback.clone()
     }
 
     fn message(
