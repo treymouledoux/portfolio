@@ -241,6 +241,38 @@ async fn syncthing_reports_a_missing_agent_and_keeps_fixed_verbs() {
     }
 }
 
+/// The dashboard and the site have to agree on a shape, and the site parses
+/// these again with lettre, so anything doubtful is refused here.
+#[test]
+fn contact_addresses_are_plain_and_bounded() {
+    for value in [
+        "owner@example.test",
+        "first.last+tag@sub.example.co",
+        " owner@example.test ",
+        "owner@example.test\n",
+    ] {
+        assert_eq!(contact_address(value), Some(value.trim()), "{value}");
+    }
+    for value in [
+        "",
+        "owner",
+        "owner@",
+        "@example.test",
+        "owner@example",
+        "owner@.test",
+        "owner@test.",
+        "owner@-test.example",
+        "owner@test-.example",
+        "owner@exa_mple.test",
+        "owner@example.t3",
+        "a b@example.test",
+        "owner@example.test,other@example.test",
+    ] {
+        assert!(contact_address(value).is_none(), "{value}");
+    }
+    assert!(contact_address(&"x".repeat(65)).is_none());
+}
+
 #[tokio::test]
 async fn history_is_read_only_and_empty_until_the_pi_records_a_check() {
     let headers = [("tailscale-user-login", OWNER)];
@@ -931,6 +963,7 @@ async fn settings_is_a_view_for_a_viewer() {
     assert!(page.contains("id=\"view-settings\""));
     assert!(page.contains("Settings · Tailnet dashboard"));
     assert!(page.contains("id=\"webterm\""));
+    assert!(page.contains("id=\"recipients-form\""));
     // Every passkey control lives here; nothing sends the owner elsewhere.
     assert!(page.contains("id=\"passkey-panel\""));
     assert!(!page.contains("/messages/passkey"));
@@ -949,6 +982,8 @@ async fn owner_actions_are_refused_without_a_configured_origin() {
         ("POST", "/api/admin/reboot"),
         ("POST", "/api/admin/syncthing/pause"),
         ("POST", "/api/admin/syncthing/resume"),
+        ("GET", "/api/admin/contact-recipients"),
+        ("POST", "/api/admin/contact-recipients"),
         ("POST", "/api/terminal/open"),
         ("POST", "/api/terminal/read"),
         ("POST", "/api/terminal/write"),

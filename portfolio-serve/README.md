@@ -26,6 +26,7 @@ Environment variables:
 | `PORTFOLIO_DATA_DIR` | `data` | Persistent private submission storage, outside the assets directory |
 | `PORTFOLIO_PREPROVISIONED_STORE` | unset/false | Require an existing regular `submissions.jsonl` and `submissions.lock` in the data directory. Enable for a broker-managed archive. |
 | `PORTFOLIO_TRUST_CLOUDFLARE` | unset/false | Honor `CF-Connecting-IP` only from loopback peers; requires a loopback listener |
+| `PORTFOLIO_CONTACT_RECIPIENTS` | `/etc/portfolio-contact/recipients.json` | Editable recipient list, maintained by the private dashboard |
 
 The production unit enables Cloudflare header trust because the local cloudflared tunnel supplies the client address. Keep the backend bound to loopback; do not enable this setting behind an untrusted proxy. Without a trusted header, limits use the socket peer address.
 
@@ -54,6 +55,16 @@ To receive a copy of each new contact submission, create `/etc/credstore/portfol
   "to": "owner@example.com"
 }
 ```
+
+`to` is optional. The site prefers the editable list at `/etc/portfolio-contact/recipients.json` (override with `PORTFOLIO_CONTACT_RECIPIENTS`), which the private dashboard's Settings view writes through its root host agent:
+
+```json
+{
+  "recipients": ["owner@example.com", "assistant@example.com"]
+}
+```
+
+The list is read for each delivery, so saving one needs no restart. Up to ten addresses are delivered; duplicates and unparseable entries are skipped. A missing, empty or unreadable list leaves the credential's `to` in use, so an existing host keeps notifying until an owner saves one.
 
 After deploying the updated unit, restart it with `sudo systemctl restart portfolio.service` to load the private credentials. Submit a short test message on the site and check your inbox.
 

@@ -201,7 +201,7 @@
           <div>
             <p class="eyebrow">Settings</p>
             <h1>Settings</h1>
-            <p class="lede">Telemetry cadence, host operations and passkey access.</p>
+            <p class="lede">Telemetry cadence, contact mail, host operations and passkey access.</p>
           </div>
         </div>
         <section aria-labelledby="telemetry">
@@ -249,6 +249,22 @@
             </div>
             <p class="settings-status" id="session-length-status" role="status" aria-live="polite"></p>
           </div>
+        </section>
+        <section aria-labelledby="recipients">
+          <h2 id="recipients">Contact recipients</h2>
+          <form class="settings-card" id="recipients-form">
+            <p>Every message from the public contact form is emailed to these addresses. The site reads this list on its next delivery, so saving here needs no restart.</p>
+            <p class="operations-lock" id="recipients-lock" hidden>Locked. Unlock with your passkey above to read or change the recipients.</p>
+            <div class="recipients-list" id="recipients-list" hidden></div>
+            <div class="settings-row">
+              <div><strong>Addresses</strong><p>One email per recipient, up to ten.</p></div>
+              <div class="recipients-actions">
+                <button type="button" id="recipients-add" disabled>Add recipient</button>
+                <button type="submit" id="recipients-save" disabled>Save recipients</button>
+              </div>
+            </div>
+            <p class="settings-status" id="recipients-status" role="status" aria-live="polite"></p>
+          </form>
         </section>
         <section aria-labelledby="operations">
           <h2 id="operations">Host operations</h2>

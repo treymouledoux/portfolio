@@ -35,6 +35,9 @@ const VIEW_OVERVIEW: &str = "overview";
 const VIEW_MESSAGES: &str = "messages";
 const VIEW_SETTINGS: &str = "settings";
 const CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/// Contact mail can go to a handful of people at once; the agent enforces the
+/// same bound, and the public site reads whatever list is saved.
+const CONTACT_RECIPIENT_LIMIT: usize = 10;
 const ACTION_CSP: &str = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const DENIAL_CSP: &str = "default-src 'none'; style-src 'sha256-HwnIvpYDfKYpV3JrCbFJmWJo/BbxVsaumoVtD+7KSqQ='; script-src 'sha256-X2zCJ12Zv0bcrzazj0t2Mei5Qr2UcEtoOQPk0+/F4FM='; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
@@ -216,6 +219,44 @@ fn parse_viewers(value: &str) -> Result<HashSet<String>, &'static str> {
         .collect()
 }
 
+/// The public site parses saved addresses with lettre, so the dashboard keeps
+/// to forms both sides accept: plain ASCII, one local part, a dotted domain.
+fn contact_address(value: &str) -> Option<&str> {
+    let address = value.trim();
+    if !(5..=254).contains(&address.len()) || !address.bytes().all(|b| b.is_ascii_graphic()) {
+        return None;
+    }
+    let (local, domain) = address.split_once('@')?;
+    if domain.contains('@') || local.is_empty() || local.len() > 64 {
+        return None;
+    }
+    if local.starts_with('.') || local.ends_with('.') || local.contains("..") {
+        return None;
+    }
+    if !local
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b".!#$%&'*+/=?^_`{|}~-".contains(&b))
+    {
+        return None;
+    }
+    let labels: Vec<&str> = domain.split('.').collect();
+    if labels.len() < 2
+        || !labels.iter().all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return None;
+    }
+    let tld = labels.last()?;
+    (tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic())).then_some(address)
+}
+
 /// Muse is only ever echoed, so it needs exactly one tailnet IPv4 address.
 fn muse_address(value: &str) -> Result<std::net::Ipv4Addr, &'static str> {
     let ip: std::net::Ipv4Addr = value
@@ -394,6 +435,14 @@ fn app_with(state: App, trust: Trust) -> Router {
             axum::routing::post(restart_service),
         )
         .route("/api/admin/reboot", axum::routing::post(reboot_device))
+        // Who receives contact mail is the owner's call, so reading the list is
+        // an admin path too: both methods need the passkey session.
+        .route(
+            "/api/admin/contact-recipients",
+            get(contact_recipients)
+                .post(save_contact_recipients)
+                .layer(axum::extract::DefaultBodyLimit::max(4 * 1024)),
+        )
         // Syncthing is read and moved through the root agent, which holds the
         // daemon's API key; the dashboard's own sandbox never keeps it.
         .route("/api/syncthing", get(syncthing_status))
@@ -651,6 +700,62 @@ async fn syncthing_control(AxumPath(action): AxumPath<String>) -> Response {
         return StatusCode::BAD_REQUEST.into_response();
     }
     admin::perform(json!({"verb": format!("syncthing-{action}")})).await
+}
+
+/// The saved list, or the single address the mail credential still falls back
+/// to before the owner saves one here.
+async fn contact_recipients() -> Response {
+    match admin::call(json!({"verb": "contact-recipients"})).await {
+        Some(reply) => Json(json!({
+            "available": true,
+            "configured": reply.get("configured").and_then(Value::as_bool).unwrap_or(false),
+            "recipients": reply.get("recipients").cloned().unwrap_or_else(|| json!([])),
+        }))
+        .into_response(),
+        None => Json(json!({"available": false, "recipients": []})).into_response(),
+    }
+}
+
+/// The agent writes the file the public site reads on its next delivery, so a
+/// save needs no restart. One bad address refuses the whole list instead of
+/// leaving half of it applied.
+async fn save_contact_recipients(Json(body): Json<Value>) -> Response {
+    let Some(values) = body.get("recipients").and_then(Value::as_array) else {
+        return (StatusCode::BAD_REQUEST, "Send the addresses as a list.").into_response();
+    };
+    if values.is_empty() || values.len() > CONTACT_RECIPIENT_LIMIT {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Configure between one and ten addresses.",
+        )
+            .into_response();
+    }
+    let mut recipients: Vec<String> = Vec::new();
+    for value in values {
+        let Some(address) = value.as_str().and_then(contact_address) else {
+            return (StatusCode::BAD_REQUEST, "That is not an email address.").into_response();
+        };
+        if !recipients
+            .iter()
+            .any(|seen| seen.eq_ignore_ascii_case(address))
+        {
+            recipients.push(address.to_owned());
+        }
+    }
+    let request = json!({"verb": "contact-recipients-set", "recipients": recipients.clone()});
+    match admin::call(request).await {
+        Some(reply) => Json(json!({
+            "available": true,
+            "configured": true,
+            "recipients": reply.get("recipients").cloned().unwrap_or_else(|| json!(recipients)),
+        }))
+        .into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The host agent did not answer.",
+        )
+            .into_response(),
+    }
 }
 
 /// Only the three named units exist on the agent; nothing else is forwarded.

@@ -708,6 +708,7 @@ figure.chart figcaption { margin-top: 0.9rem; }
 .settings-field { display: grid; gap: 0.35rem; max-width: 22rem; }
 .settings-field label { color: var(--muted); font-size: 0.8rem; }
 .settings-field select,
+.settings-field input,
 .settings-confirm input {
   min-height: 2.2rem;
   padding: 0.35rem 0.55rem;
@@ -732,12 +733,18 @@ figure.chart figcaption { margin-top: 0.9rem; }
 /* A locked host operation is unavailable, not busy. */
 .settings-row button:disabled,
 .settings-confirm button:disabled,
-.settings-field select:disabled { cursor: not-allowed; opacity: 0.45; }
+.settings-field select:disabled,
+.settings-field input:disabled { cursor: not-allowed; opacity: 0.45; }
 .operations-lock { color: var(--bad); }
 .settings-confirm { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .settings-confirm input { width: 8.5rem; }
 .settings-status { color: var(--accent); font: 0.78rem/1.5 var(--mono); }
 .settings-status:empty { display: none; }
+.settings-field > span { color: var(--muted); font-size: 0.8rem; }
+.settings-field input { width: 100%; }
+.recipients-list { display: grid; gap: 0.75rem; }
+.recipients-row { padding-bottom: 0.75rem; }
+.recipients-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .button-link {
   display: inline-flex;
   align-items: center;

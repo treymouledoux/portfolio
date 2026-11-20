@@ -143,6 +143,72 @@ def test_syncthing_is_loopback_only_and_its_verbs_are_fixed():
     assert rejected("syncthing-forget") == "unknown request"
 
 
+def test_contact_recipients_are_validated_and_saved_for_the_site():
+    import json
+    import os
+    import tempfile
+
+    previous = os.environ.get("DASHBOARD_CONTACT_RECIPIENTS")
+    previous_smtp = os.environ.get("DASHBOARD_CONTACT_SMTP")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "contact" / "recipients.json"
+            os.environ["DASHBOARD_CONTACT_RECIPIENTS"] = str(path)
+            # Before an owner saves anything the panel shows the address the
+            # mail credential already uses.
+            smtp = Path(tmp) / "smtp.json"
+            smtp.write_text(json.dumps({"username": "u", "password": "p", "to": "owner@example.test"}))
+            os.environ["DASHBOARD_CONTACT_SMTP"] = str(smtp)
+            assert agent.read_contact_recipients() == {
+                "recipients": ["owner@example.test"],
+                "configured": False,
+            }
+            for values in (
+                [],
+                ["not an address"],
+                ["a@b"],
+                ["owner@example.test,other@example.test"],
+                ["x" * 65 + "@example.test"],
+                [f"n{index}@example.test" for index in range(11)],
+                None,
+            ):
+                try:
+                    agent.handle({"verb": "contact-recipients-set", "recipients": values})
+                except agent.Rejected:
+                    pass
+                else:
+                    raise AssertionError(f"{values!r} must not be saved")
+            reply = agent.handle(
+                {
+                    "verb": "contact-recipients-set",
+                    "recipients": ["One@example.test", "two@example.test", "one@example.test"],
+                }
+            )
+            assert reply["ok"] is True
+            # A repeated address is mailed once, not twice.
+            assert reply["recipients"] == ["One@example.test", "two@example.test"]
+            assert json.loads(path.read_text()) == {
+                "recipients": ["One@example.test", "two@example.test"]
+            }
+            # The public service runs as another account and has to read it.
+            assert path.stat().st_mode & 0o777 == 0o644
+            assert path.parent.stat().st_mode & 0o777 == 0o755
+            assert agent.read_contact_recipients() == {
+                "recipients": ["One@example.test", "two@example.test"],
+                "configured": True,
+            }
+    finally:
+        for name, value in (
+            ("DASHBOARD_CONTACT_RECIPIENTS", previous),
+            ("DASHBOARD_CONTACT_SMTP", previous_smtp),
+        ):
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    assert rejected("contact-recipients-forget") == "unknown request"
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

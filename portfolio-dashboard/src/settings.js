@@ -119,6 +119,174 @@
     window.SessionBadge?.refresh?.();
   });
 
+  // ---- Contact recipients -------------------------------------------------
+  const recipientsForm = document.getElementById("recipients-form");
+  const recipientsList = document.getElementById("recipients-list");
+  const recipientsAdd = document.getElementById("recipients-add");
+  const recipientsSave = document.getElementById("recipients-save");
+  const recipientsLock = document.getElementById("recipients-lock");
+  const recipientsStatus = document.getElementById("recipients-status");
+  const RECIPIENTS_MAX = 10;
+  // The list is read only behind an admin session, so this remembers whether
+  // the form already holds the saved values.
+  let recipientsLoaded = false;
+  let recipientsLoading = false;
+
+  function recipientInputs() {
+    return recipientsList ? [...recipientsList.querySelectorAll("input")] : [];
+  }
+
+  function addRecipient(address = "") {
+    if (!recipientsList || recipientInputs().length >= RECIPIENTS_MAX) return null;
+    const row = document.createElement("div");
+    row.className = "settings-row recipients-row";
+    const field = document.createElement("label");
+    field.className = "settings-field";
+    const caption = document.createElement("span");
+    caption.textContent = "Recipient";
+    const input = document.createElement("input");
+    input.type = "email";
+    input.value = address;
+    input.placeholder = "name@example.com";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.required = true;
+    input.disabled = !unlocked;
+    field.append(caption, input);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "recipients-remove";
+    remove.textContent = "Remove";
+    remove.disabled = !unlocked;
+    remove.addEventListener("click", () => {
+      row.remove();
+      // One empty row stays on screen so the form never looks broken.
+      if (!recipientInputs().length) addRecipient();
+      setRecipients();
+    });
+    row.append(field, remove);
+    recipientsList.append(row);
+    return input;
+  }
+
+  // Every control follows the one session the header badge holds.
+  function setRecipients() {
+    if (!recipientsForm) return;
+    if (recipientsLock) recipientsLock.hidden = unlocked;
+    if (recipientsList) recipientsList.hidden = !unlocked;
+    for (const input of recipientInputs()) input.disabled = !unlocked;
+    for (const button of recipientsList?.querySelectorAll("button") ?? []) {
+      button.disabled = !unlocked;
+    }
+    if (recipientsAdd) {
+      recipientsAdd.disabled = !unlocked || recipientInputs().length >= RECIPIENTS_MAX;
+    }
+    if (recipientsSave) recipientsSave.disabled = !unlocked;
+    if (!unlocked) {
+      // A locked page shows no saved addresses and reloads them on unlock.
+      recipientsLoaded = false;
+      if (recipientsStatus) recipientsStatus.textContent = "";
+    }
+  }
+
+  function renderRecipients(body) {
+    if (!recipientsList) return;
+    recipientsList.textContent = "";
+    const addresses = Array.isArray(body.recipients)
+      ? body.recipients.slice(0, RECIPIENTS_MAX).map(String)
+      : [];
+    for (const address of addresses) addRecipient(address);
+    if (!recipientInputs().length) addRecipient();
+    recipientsLoaded = true;
+    if (recipientsStatus) {
+      recipientsStatus.textContent = body.configured
+        ? `Messages go to ${addresses.length} address${addresses.length === 1 ? "" : "es"}.`
+        : addresses.length
+          ? "Until you save, these addresses still come from the mail server credential."
+          : "No recipients are configured yet. Add an address and save.";
+    }
+    setRecipients();
+  }
+
+  async function loadRecipients() {
+    if (!recipientsForm || recipientsLoading) return;
+    if (!unlocked) {
+      setRecipients();
+      return;
+    }
+    recipientsLoading = true;
+    try {
+      const response = await fetch("/api/admin/contact-recipients", {
+        cache: "no-store", mode: "same-origin", redirect: "error",
+        headers: {Accept: "application/json"},
+      }).catch(() => null);
+      if (response?.status === 401 || response?.status === 403) {
+        if (recipientsStatus) recipientsStatus.textContent =
+          "Unlock with your passkey above to read the recipients.";
+        return;
+      }
+      if (!response?.ok) {
+        if (recipientsStatus) recipientsStatus.textContent = "The host agent did not answer.";
+        return;
+      }
+      const body = await response.json().catch(() => ({}));
+      if (body.available === false) {
+        if (recipientsStatus) recipientsStatus.textContent =
+          "The host agent is not installed or did not answer.";
+        return;
+      }
+      renderRecipients(body);
+    } finally {
+      recipientsLoading = false;
+    }
+  }
+
+  recipientsAdd?.addEventListener("click", () => {
+    if (!unlocked) return;
+    addRecipient()?.focus();
+    setRecipients();
+  });
+
+  recipientsForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!unlocked) return;
+    const seen = new Set();
+    const recipients = [];
+    for (const input of recipientInputs()) {
+      const address = input.value.trim();
+      if (!address || seen.has(address.toLowerCase())) continue;
+      seen.add(address.toLowerCase());
+      recipients.push(address);
+    }
+    if (!recipients.length) {
+      if (recipientsStatus) recipientsStatus.textContent = "Add at least one address.";
+      return;
+    }
+    if (recipientsSave) recipientsSave.disabled = true;
+    if (recipientsStatus) recipientsStatus.textContent = "Saving…";
+    const response = await post("/api/admin/contact-recipients", {recipients}).catch(() => null);
+    if (response?.status === 401 || response?.status === 403) {
+      try {
+        await unlock();
+      } catch (error) {
+        if (recipientsStatus) recipientsStatus.textContent = error.message;
+        setRecipients();
+        return;
+      }
+      loadRecipients();
+      return;
+    }
+    if (!response?.ok) {
+      if (recipientsStatus) recipientsStatus.textContent = response?.status === 400
+        ? "Those addresses were not accepted."
+        : "The host agent did not answer.";
+      setRecipients();
+      return;
+    }
+    const body = await response.json().catch(() => ({}));
+    renderRecipients({recipients: body.recipients ?? recipients, configured: true});
+  });
+
   // ---- Host operations ---------------------------------------------------
   const operationStatus = document.getElementById("operation-status");
   const operationsLock = document.getElementById("operations-lock");
@@ -299,6 +467,10 @@
     renderTerminal();
     setOperations();
     setSessionLength();
+    setRecipients();
+    // The saved addresses are only readable with a session, so they arrive
+    // after an unlock rather than with the page.
+    if (unlocked && !recipientsLoaded) loadRecipients();
   }
 
   function syncSession() {
@@ -519,6 +691,7 @@
   function load() {
     loadSettings();
     loadSessionLength();
+    loadRecipients();
   }
 
   window.SettingsPanel = {load};

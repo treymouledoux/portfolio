@@ -55,6 +55,12 @@ SYNCTHING_TIMEOUT = 4
 SYNCTHING_BODY_LIMIT = 512 * 1024
 # A card lists a handful of peers and folders; more than that is not status.
 SYNCTHING_ROWS = 8
+# The public site reads this list for every contact delivery, so a save here
+# applies without restarting it. Only root can write under /etc, and the
+# dashboard's sandbox cannot reach it, so the agent is the one editor.
+CONTACT_RECIPIENTS_DEFAULT = "/etc/portfolio-contact/recipients.json"
+CONTACT_SMTP_DEFAULT = "/etc/credstore/portfolio-contact-smtp.json"
+CONTACT_RECIPIENT_LIMIT = 10
 
 
 class Rejected(ValueError):
@@ -209,6 +215,126 @@ def syncthing_status():
         "devices": devices,
         "folders": rows,
     }
+
+
+def contact_recipients_path():
+    return Path(os.environ.get("DASHBOARD_CONTACT_RECIPIENTS", CONTACT_RECIPIENTS_DEFAULT))
+
+
+def contact_smtp_path():
+    return Path(os.environ.get("DASHBOARD_CONTACT_SMTP", CONTACT_SMTP_DEFAULT))
+
+
+def email_address(value):
+    """One plain address, in a shape lettre will also accept."""
+    if not isinstance(value, str):
+        return None
+    address = value.strip()
+    if not 5 <= len(address) <= 254 or not address.isascii():
+        return None
+    if any(not char.isprintable() or char.isspace() for char in address):
+        return None
+    local, at, domain = address.partition("@")
+    if not at or "@" in domain or not 0 < len(local) <= 64:
+        return None
+    allowed = set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.!#$%&'*+/=?^_`{|}~-"
+    )
+    if (
+        local.startswith(".")
+        or local.endswith(".")
+        or ".." in local
+        or any(char not in allowed for char in local)
+    ):
+        return None
+    labels = domain.split(".")
+    if len(labels) < 2 or any(not 1 <= len(label) <= 63 for label in labels):
+        return None
+    for label in labels:
+        if label.startswith("-") or label.endswith("-"):
+            return None
+        if any(not (char.isalnum() or char == "-") for char in label):
+            return None
+    if len(labels[-1]) < 2 or not labels[-1].isalpha():
+        return None
+    return address
+
+
+def clean_recipients(values):
+    """A save is all or nothing: one bad address refuses the whole list."""
+    if not isinstance(values, list) or not 1 <= len(values) <= CONTACT_RECIPIENT_LIMIT:
+        raise Rejected("configure between one and ten addresses")
+    recipients, seen = [], set()
+    for value in values:
+        address = email_address(value)
+        if address is None:
+            raise Rejected("that is not an email address")
+        if address.casefold() not in seen:
+            seen.add(address.casefold())
+            recipients.append(address)
+    return recipients
+
+
+def read_contact_recipients():
+    """The saved list, or the address the mail credential still uses.
+
+    The credential's password is never read out of this file: only its `to`
+    field is parsed, and only while no editable list exists yet.
+    """
+    try:
+        data = json.loads(contact_recipients_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        data = None
+    except (OSError, ValueError):
+        raise Rejected("the saved recipients could not be read")
+    if data is not None:
+        stored = data.get("recipients") if isinstance(data, dict) else None
+        if not isinstance(stored, list):
+            raise Rejected("the saved recipients could not be read")
+        recipients = []
+        for value in stored[:CONTACT_RECIPIENT_LIMIT]:
+            address = email_address(value)
+            if address and address.casefold() not in {item.casefold() for item in recipients}:
+                recipients.append(address)
+        return {"recipients": recipients, "configured": True}
+    try:
+        credential = json.loads(contact_smtp_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        credential = None
+    address = email_address(credential.get("to")) if isinstance(credential, dict) else None
+    return {"recipients": [address] if address else [], "configured": False}
+
+
+def save_contact_recipients(values):
+    recipients = clean_recipients(values)
+    path = contact_recipients_path()
+    directory = path.parent
+    directory.mkdir(mode=0o755, parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.chmod(directory, 0o755)
+    # The public service runs as a different unprivileged account, so the file
+    # must be readable and its directory traversable; the unit's UMask=0077
+    # would otherwise strip both.
+    temp = directory / f".{path.name}.{secrets.token_hex(8)}"
+    descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump({"recipients": recipients}, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp, 0o644)
+        os.replace(temp, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp)
+    with contextlib.suppress(OSError):
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    return recipients
 
 
 class Session:
@@ -404,6 +530,12 @@ def handle(request):
     if verb in SYNCTHING_ACTIONS:
         syncthing("/rest/system/" + SYNCTHING_ACTIONS[verb], method="POST")
         return {"ok": True}
+    if verb == "contact-recipients":
+        saved = read_contact_recipients()
+        return {"ok": True, **saved}
+    if verb == "contact-recipients-set":
+        recipients = save_contact_recipients(request.get("recipients"))
+        return {"ok": True, "recipients": recipients, "configured": True}
     raise Rejected("unknown request")
 
 
