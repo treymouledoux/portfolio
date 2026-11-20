@@ -394,6 +394,13 @@ fn app_with(state: App, trust: Trust) -> Router {
             axum::routing::post(restart_service),
         )
         .route("/api/admin/reboot", axum::routing::post(reboot_device))
+        // Syncthing is read and moved through the root agent, which holds the
+        // daemon's API key; the dashboard's own sandbox never keeps it.
+        .route("/api/syncthing", get(syncthing_status))
+        .route(
+            "/api/admin/syncthing/{action}",
+            axum::routing::post(syncthing_control),
+        )
         .route(
             "/api/terminal/open",
             axum::routing::post(terminal_open).layer(axum::extract::DefaultBodyLimit::max(1024)),
@@ -627,6 +634,23 @@ async fn save_settings(State(app): State<App>, Json(body): Json<Value>) -> Respo
         }
         None => (StatusCode::BAD_REQUEST, "Choose one of the offered values.").into_response(),
     }
+}
+
+/// A missing or refusing agent is a card that says so, not a failed page.
+async fn syncthing_status() -> Response {
+    let state = admin::call(json!({"verb": "syncthing-status"}))
+        .await
+        .and_then(|reply| reply.get("syncthing").cloned())
+        .unwrap_or_else(|| json!({"available": false}));
+    Json(state).into_response()
+}
+
+/// Only the two named transitions exist; the agent decides what they mean.
+async fn syncthing_control(AxumPath(action): AxumPath<String>) -> Response {
+    if !matches!(action.as_str(), "pause" | "resume") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    admin::perform(json!({"verb": format!("syncthing-{action}")})).await
 }
 
 /// Only the three named units exist on the agent; nothing else is forwarded.

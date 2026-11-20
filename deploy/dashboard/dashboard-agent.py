@@ -23,6 +23,10 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 SOCKET = "/run/portfolio-dashboard-agent/agent.sock"
 WIRE_LIMIT = 64 * 1024
@@ -39,6 +43,18 @@ RESTART_UNITS = {
     "public": "portfolio.service",
 }
 SHELL = "/bin/bash"
+# Syncthing's API key controls the whole daemon, so it stays in this root
+# process instead of the dashboard's sandboxed environment. The dashboard can
+# ask for status or one of two transitions, and for nothing else.
+SYNCTHING_ACTIONS = {
+    "syncthing-pause": "pause",
+    "syncthing-resume": "resume",
+}
+SYNCTHING_DEFAULT_API = "http://127.0.0.1:8384"
+SYNCTHING_TIMEOUT = 4
+SYNCTHING_BODY_LIMIT = 512 * 1024
+# A card lists a handful of peers and folders; more than that is not status.
+SYNCTHING_ROWS = 8
 
 
 class Rejected(ValueError):
@@ -60,6 +76,139 @@ def account(name):
     if record.pw_uid == 0:
         raise Rejected("shell account must be an ordinary human account")
     return record
+
+
+def syncthing_api():
+    """Where the daemon answers: a loopback origin and nothing else."""
+    base = os.environ.get("DASHBOARD_SYNCTHING_API", SYNCTHING_DEFAULT_API).rstrip("/")
+    parsed = urlparse(base)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}
+        or parsed.username
+        or parsed.password
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise Rejected("syncthing must answer on loopback")
+    return base
+
+
+def syncthing_config():
+    explicit = os.environ.get("DASHBOARD_SYNCTHING_CONFIG")
+    if explicit:
+        return Path(explicit)
+    user = os.environ.get("DASHBOARD_AGENT_SHELL_USER", "trey")
+    return Path(pwd.getpwnam(user).pw_dir) / ".local/state/syncthing/config.xml"
+
+
+def syncthing_key():
+    try:
+        root = ElementTree.parse(syncthing_config()).getroot()
+    except (OSError, ElementTree.ParseError):
+        raise Rejected("syncthing is not configured")
+    key = (root.findtext("./gui/apikey") or "").strip()
+    if not key:
+        raise Rejected("syncthing is not configured")
+    return key
+
+
+def syncthing(path, method="GET"):
+    request = Request(syncthing_api() + path, method=method)
+    request.add_header("X-API-Key", syncthing_key())
+    try:
+        with urlopen(request, timeout=SYNCTHING_TIMEOUT) as response:
+            if response.status != 200:
+                raise Rejected("syncthing refused the request")
+            body = response.read(SYNCTHING_BODY_LIMIT + 1)
+    except Rejected:
+        raise
+    except HTTPError:
+        raise Rejected("syncthing refused the request")
+    except (URLError, OSError):
+        raise Rejected("syncthing is not running")
+    if len(body) > SYNCTHING_BODY_LIMIT:
+        raise Rejected("syncthing sent too much")
+    return body
+
+
+def syncthing_json(path):
+    try:
+        return json.loads(syncthing(path))
+    except ValueError:
+        raise Rejected("syncthing answered with something else")
+
+
+def syncthing_status():
+    """One card's worth of state: the daemon, its peers and its folders."""
+    status = syncthing_json("/rest/system/status")
+    version = syncthing_json("/rest/system/version")
+    configured = syncthing_json("/rest/config/devices")
+    folders = syncthing_json("/rest/config/folders")
+    links = syncthing_json("/rest/system/connections")
+    connections = links.get("connections") if isinstance(links, dict) else None
+    if not isinstance(connections, dict):
+        connections = {}
+    status = status if isinstance(status, dict) else {}
+    my_id = status.get("myID")
+    devices = []
+    for device in configured if isinstance(configured, list) else []:
+        if not isinstance(device, dict):
+            continue
+        device_id = device.get("deviceID", "")
+        if not device_id or device_id == my_id:
+            continue
+        link = connections.get(device_id)
+        devices.append(
+            {
+                "name": device.get("name") or device_id.split("-")[0],
+                "paused": bool(device.get("paused")),
+                "connected": bool(isinstance(link, dict) and link.get("connected")),
+            }
+        )
+        if len(devices) == SYNCTHING_ROWS:
+            break
+    rows = []
+    for folder in folders if isinstance(folders, list) else []:
+        if not isinstance(folder, dict):
+            continue
+        identifier = str(folder.get("id", ""))
+        row = {
+            "label": str(folder.get("label") or identifier),
+            "paused": bool(folder.get("paused")),
+            "state": "paused" if folder.get("paused") else "unknown",
+            "need_files": 0,
+        }
+        # A paused folder has no state of its own to report.
+        if identifier and not row["paused"]:
+            try:
+                local = syncthing_json("/rest/db/status?folder=" + quote(identifier))
+            except Rejected:
+                local = {}
+            if isinstance(local, dict):
+                row["state"] = str(local.get("state") or "unknown")
+                try:
+                    row["need_files"] = int(local.get("needFiles") or 0)
+                except (TypeError, ValueError):
+                    row["need_files"] = 0
+        rows.append(row)
+        if len(rows) == SYNCTHING_ROWS:
+            break
+    everything = devices + rows
+    paused = bool(everything) and all(item["paused"] for item in everything)
+    try:
+        uptime = int(status.get("uptime") or 0)
+    except (TypeError, ValueError):
+        uptime = 0
+    return {
+        "available": True,
+        "version": str(version.get("version") or "") if isinstance(version, dict) else "",
+        "uptime_seconds": uptime,
+        "paused": paused,
+        "devices": devices,
+        "folders": rows,
+    }
 
 
 class Session:
@@ -249,6 +398,11 @@ def handle(request):
             terminal = SESSIONS.pop(request.get("id"), None)
         if terminal is not None:
             terminal.stop()
+        return {"ok": True}
+    if verb == "syncthing-status":
+        return {"ok": True, "syncthing": syncthing_status()}
+    if verb in SYNCTHING_ACTIONS:
+        syncthing("/rest/system/" + SYNCTHING_ACTIONS[verb], method="POST")
         return {"ok": True}
     raise Rejected("unknown request")
 

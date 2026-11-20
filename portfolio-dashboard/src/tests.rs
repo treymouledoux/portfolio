@@ -138,6 +138,7 @@ async fn every_private_route_and_error_requires_one_trusted_viewer() {
         "/dashboard.css",
         "/api/status",
         "/api/history",
+        "/api/syncthing",
         "/messages",
         "/missing",
     ] {
@@ -209,6 +210,35 @@ async fn only_fixed_status_is_returned_without_writes_or_cors() {
         call("GET", "/api/admin", &headers).await.status(),
         StatusCode::NOT_FOUND
     );
+}
+
+/// The card reports an unreachable daemon instead of failing the page, and its
+/// two transitions stay fixed names behind the admin session.
+#[tokio::test]
+async fn syncthing_reports_a_missing_agent_and_keeps_fixed_verbs() {
+    let login = [("tailscale-user-login", OWNER)];
+    let response = call("GET", "/api/syncthing", &login).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+        serde_json::json!({"available": false})
+    );
+    for path in [
+        "/api/admin/syncthing/pause",
+        "/api/admin/syncthing/resume",
+        "/api/admin/syncthing/delete",
+    ] {
+        assert_eq!(
+            call("POST", path, &login).await.status(),
+            StatusCode::FORBIDDEN,
+            "{path}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -917,6 +947,8 @@ async fn owner_actions_are_refused_without_a_configured_origin() {
         ("POST", "/api/settings"),
         ("POST", "/api/admin/restart/tailscaled"),
         ("POST", "/api/admin/reboot"),
+        ("POST", "/api/admin/syncthing/pause"),
+        ("POST", "/api/admin/syncthing/resume"),
         ("POST", "/api/terminal/open"),
         ("POST", "/api/terminal/read"),
         ("POST", "/api/terminal/write"),

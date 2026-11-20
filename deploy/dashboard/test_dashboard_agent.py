@@ -104,6 +104,45 @@ def test_wire_requests_must_be_objects():
     assert agent.handle({"verb": "ping"}) == {"ok": True}
 
 
+def test_syncthing_is_loopback_only_and_its_verbs_are_fixed():
+    import os
+
+    previous = os.environ.get("DASHBOARD_SYNCTHING_API")
+    try:
+        for value in (
+            "http://192.168.1.12:8384",
+            "http://example.test:8384",
+            "https://127.0.0.1:8384",
+            "http://user:pass@127.0.0.1:8384",
+            "http://127.0.0.1:8384/rest",
+            "http://127.0.0.1:8384?x=1",
+        ):
+            os.environ["DASHBOARD_SYNCTHING_API"] = value
+            try:
+                agent.syncthing_api()
+            except agent.Rejected:
+                pass
+            else:
+                raise AssertionError(f"{value} must not be accepted")
+        for value in (
+            "http://127.0.0.1:8384",
+            "http://[::1]:8384",
+            "http://localhost:8384/",
+        ):
+            os.environ["DASHBOARD_SYNCTHING_API"] = value
+            assert agent.syncthing_api() == value.rstrip("/")
+    finally:
+        if previous is None:
+            os.environ.pop("DASHBOARD_SYNCTHING_API", None)
+        else:
+            os.environ["DASHBOARD_SYNCTHING_API"] = previous
+    assert agent.SYNCTHING_ACTIONS == {
+        "syncthing-pause": "pause",
+        "syncthing-resume": "resume",
+    }
+    assert rejected("syncthing-forget") == "unknown request"
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

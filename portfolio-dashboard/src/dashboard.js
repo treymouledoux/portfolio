@@ -99,6 +99,125 @@ function showSnapshot(snapshot) {
   }
 }
 
+// ---- Syncthing ---------------------------------------------------------
+// The card reads through the host agent, which holds the daemon's API key, so
+// a daemon that is down or paused still leaves the rest of the page working.
+const syncthing = {
+  reading: document.getElementById("syncthing"),
+  version: document.getElementById("syncthing-version"),
+  devices: document.getElementById("syncthing-devices"),
+  folders: document.getElementById("syncthing-folders"),
+  uptime: document.getElementById("syncthing-uptime"),
+  peers: document.getElementById("syncthing-peers"),
+  toggle: document.getElementById("syncthing-toggle"),
+  note: document.getElementById("syncthing-note"),
+};
+let syncthingPaused = false;
+
+function formatUptime(seconds) {
+  return Number.isFinite(seconds)
+    ? `${Math.floor(seconds / 86400)}d ${Math.floor(seconds / 3600) % 24}h ${Math.floor(seconds / 60) % 60}m`
+    : "—";
+}
+
+function drawSyncthing(state) {
+  if (!syncthing.reading) return;
+  const devices = Array.isArray(state?.devices) ? state.devices : [];
+  const folders = Array.isArray(state?.folders) ? state.folders : [];
+  syncthingPaused = state?.paused === true;
+  syncthing.peers.replaceChildren();
+  syncthing.peers.hidden = true;
+  if (state?.available !== true) {
+    setReading(syncthing.reading, "Unavailable", "bad");
+    syncthing.version.textContent = "—";
+    syncthing.devices.textContent = "—";
+    syncthing.folders.textContent = "—";
+    syncthing.uptime.textContent = "—";
+    syncthing.toggle.textContent = "Pause";
+    syncthing.toggle.disabled = true;
+    syncthing.toggle.title = "";
+    syncthing.note.textContent = "The host agent or Syncthing did not answer.";
+    return;
+  }
+  // Paused is a deliberate state, not a fault, so it reads amber rather than red.
+  setReading(syncthing.reading, syncthingPaused ? "Paused" : "Running",
+    syncthingPaused ? "warn" : "good");
+  syncthing.version.textContent = state.version || "—";
+  const connected = devices.filter(device => device.connected).length;
+  syncthing.devices.textContent = devices.length
+    ? `${connected} / ${devices.length} connected` : "None configured";
+  const paused = folders.filter(folder => folder.paused).length;
+  const needing = folders.filter(folder => Number(folder.need_files) > 0).length;
+  syncthing.folders.textContent = folders.length
+    ? `${folders.length - paused} / ${folders.length} active${needing ? ` · ${needing} needing files` : ""}`
+    : "None configured";
+  syncthing.uptime.textContent = formatUptime(state.uptime_seconds);
+  for (const device of devices) {
+    const item = document.createElement("li");
+    item.dataset.state = device.paused ? "paused" : device.connected ? "connected" : "offline";
+    const name = document.createElement("span");
+    name.textContent = device.name;
+    const status = document.createElement("span");
+    status.textContent = device.paused ? "Paused" : device.connected ? "Connected" : "Offline";
+    item.append(name, status);
+    syncthing.peers.append(item);
+  }
+  syncthing.peers.hidden = devices.length === 0;
+  syncthing.toggle.textContent = syncthingPaused ? "Resume" : "Pause";
+  // With no remote device there is nothing to pause, and the note says why.
+  syncthing.toggle.disabled = devices.length === 0;
+  syncthing.toggle.title = devices.length ? "" : "No remote devices are configured.";
+  syncthing.note.textContent = folders.length
+    ? "" : "No folders are configured on this node, so nothing is syncing.";
+}
+
+async function loadSyncthing(signal) {
+  if (!syncthing.reading) return;
+  try {
+    const response = await fetch("/api/syncthing", {
+      cache: "no-store", mode: "same-origin", redirect: "error",
+      headers: {Accept: "application/json"}, signal
+    });
+    if (!response.ok) throw new Error("Syncthing status failed");
+    drawSyncthing(await response.json());
+  } catch {
+    // The card reports the gap; the rest of the overview is unaffected.
+    if (!signal?.aborted) drawSyncthing(null);
+  }
+}
+
+syncthing.toggle?.addEventListener("click", async () => {
+  const action = syncthingPaused ? "resume" : "pause";
+  syncthing.toggle.disabled = true;
+  syncthing.note.textContent = action === "pause" ? "Pausing…" : "Resuming…";
+  // Pausing is an owner action: the same passkey ceremony as the host controls.
+  if ((window.SessionBadge?.current?.() ?? "checking") !== "unlocked") {
+    const result = await window.PasskeyPanel?.unlock?.();
+    if (result?.ok !== true) {
+      syncthing.note.textContent = result?.message
+        || "Unlock with your passkey to pause or resume Syncthing.";
+      syncthing.toggle.disabled = false;
+      return;
+    }
+  }
+  try {
+    const response = await fetch("/api/admin/syncthing/" + action, {
+      method: "POST", credentials: "same-origin", cache: "no-store", redirect: "error",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: "{}",
+    });
+    if (response.status === 401 || response.status === 403) {
+      syncthing.note.textContent = "That needs an active admin session. Unlock with your passkey.";
+      window.SessionBadge?.refresh?.();
+    } else if (!response.ok) {
+      syncthing.note.textContent = "The host agent did not answer.";
+    }
+  } catch {
+    syncthing.note.textContent = "Couldn’t reach the host agent.";
+  }
+  await loadSyncthing();
+});
+
 // The rows the Pi measured, newest last. A failed reading stays a gap.
 async function loadHistory(signal) {
   try {
@@ -162,16 +281,22 @@ async function refresh(target) {
 
 button.hidden = false;
 button.addEventListener("click", refresh);
-window.addEventListener("pageshow", refresh);
+window.addEventListener("pageshow", () => { refresh(); loadSyncthing(); });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refresh();
+  if (document.hidden) return;
+  refresh();
+  loadSyncthing();
 });
 
 for (const control of document.querySelectorAll("button[data-test]")) {
   control.hidden = false;
   control.addEventListener("click", () => refresh(control.dataset.test));
 }
-setInterval(() => { if (!document.hidden) refresh(); }, 30000);
+setInterval(() => {
+  if (document.hidden) return;
+  refresh();
+  loadSyncthing();
+}, 30000);
 
 for (const control of viewButtons) {
   control.hidden = false;
@@ -230,6 +355,7 @@ restoreView();
 syncMenu();
 drawChart();
 loadHistory();
+loadSyncthing();
 
 function syncMenu() {
   chart.menu.hidden = view !== "ping";
