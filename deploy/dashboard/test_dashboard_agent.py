@@ -49,9 +49,9 @@ def test_root_is_never_a_shell_account():
             raise AssertionError("root must not be a shell account")
 
 
-def test_output_is_plain_text():
-    assert agent.clean(b"\x1b[31mred\x1b[0m\r\nok\x00") == b"red\nok"
-    assert agent.clean(b"\x1b]0;title\x07text") == b"text"
+def test_output_keeps_the_sequences_the_browser_draws():
+    assert agent.clean(b"\x1b[31mred\x1b[0m\r\nok\x00") == b"\x1b[31mred\x1b[0m\r\nok"
+    assert agent.clean(b"\x1b]0;title\x07text") == b"\x1b]0;title\x07text"
     assert agent.clean(b"plain\n") == b"plain\n"
 
 
@@ -71,7 +71,17 @@ def test_a_real_pty_runs_the_shell_and_echoes():
             collected += base64.b64decode(reply["data"])
             offset = reply["offset"]
         assert b"agent-probe-42" in collected, collected[-400:]
-        assert b"\x1b" not in collected
+        # A carriage return and an escape have to reach the page, which is what
+        # draws a rewritten line and a cleared screen.
+        agent.handle({"verb": "term-write", "id": sid, "data": "printf 'one\\rtwo\\033[31mthree\\033[0m\\n'\n"})
+        painted = b""
+        deadline = time.time() + 15
+        while time.time() < deadline and b"one\rtwo\x1b[31mthree" not in painted:
+            reply = agent.handle({"verb": "term-read", "id": sid, "offset": offset})
+            assert reply["ok"] is True
+            painted += base64.b64decode(reply["data"])
+            offset = reply["offset"]
+        assert b"one\rtwo\x1b[31mthree" in painted, painted[-400:]
     finally:
         agent.handle({"verb": "term-close", "id": sid})
     assert rejected("term-read", id=sid) == "terminal session ended"

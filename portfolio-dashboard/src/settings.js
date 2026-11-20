@@ -193,18 +193,58 @@
   const badge = document.getElementById("webterm-badge");
   const decoder = new TextDecoder();
   let session = null;
+  let term = null;
   let offset = 0;
 
   function say(text) {
     if (terminalStatus) terminalStatus.textContent = text;
   }
 
+  // The shell draws its own screen, so the bytes go through a grid: a carriage
+  // return rewrites the line it is on, and a clear sequence empties it.
+  function paint() {
+    if (!term) return;
+    const line = parseFloat(getComputedStyle(screen).lineHeight) || 19;
+    // Stay where the reader scrolled: only follow the tail when already there.
+    const tail = screen.scrollTop + screen.clientHeight >= screen.scrollHeight - line - 4;
+    term.render();
+    if (tail) screen.scrollTop = screen.scrollHeight;
+  }
+
   function append(text) {
-    if (!screen) return;
-    screen.textContent += text;
-    // A terminal that grows without bound eventually stalls the page.
-    if (screen.textContent.length > 60000) screen.textContent = screen.textContent.slice(-40000);
-    screen.scrollTop = screen.scrollHeight;
+    if (!term) return;
+    term.write(text);
+    paint();
+  }
+
+  // The PTY has to wrap where the page does, so the columns come from the box
+  // the screen is drawn in and the font it uses.
+  function size() {
+    const style = getComputedStyle(screen);
+    const canvas = size.canvas || (size.canvas = document.createElement("canvas"));
+    const context = canvas.getContext("2d");
+    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const width = context.measureText("0123456789").width / 10 || 8;
+    const inner = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    const vertical = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+      + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    let box = 0;
+    if (terminal?.clientWidth) {
+      const card = getComputedStyle(terminal);
+      box = terminal.clientWidth
+        - parseFloat(card.paddingLeft) - parseFloat(card.paddingRight)
+        - parseFloat(card.borderLeftWidth) - parseFloat(card.borderRightWidth) - inner - 12;
+    } else if (screen.clientWidth) {
+      box = screen.clientWidth - inner - 12;
+    }
+    const height = parseFloat(style.maxHeight) || 352;
+    const line = parseFloat(style.lineHeight) || 19;
+    return {
+      cols: box > 240 ? Math.max(40, Math.floor(box / width)) : 100,
+      // One row of slack keeps the last line above a scrollbar.
+      rows: Math.max(10, Math.min(40, Math.floor((height - vertical) / line) - 1)),
+    };
   }
 
   // An open shell is its own state, and so is a closed one the live session
@@ -263,10 +303,8 @@
 
   async function startSession() {
     say("Opening a shell…");
-    const response = await post("/api/terminal/open", {
-      cols: Math.max(60, Math.floor((screen.clientWidth || 900) / 8)),
-      rows: 30,
-    }).catch(() => null);
+    const {cols, rows} = size();
+    const response = await post("/api/terminal/open", {cols, rows}).catch(() => null);
     if (response?.status === 401 || response?.status === 403) {
       try {
         await unlock();
@@ -286,7 +324,9 @@
     session = body.id;
     offset = 0;
     shell = true;
+    term = window.WebTerm?.create(screen, cols, rows) ?? null;
     renderTerminal();
+    paint();
     say("Connected. Line input; the agent runs a real shell as your account.");
     terminalLine.focus();
     pump();

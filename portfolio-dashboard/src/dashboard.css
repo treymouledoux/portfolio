@@ -778,8 +778,10 @@ figure.chart figcaption { margin-top: 0.9rem; }
   background: #05080a;
   color: #d7e6ea;
   font: 0.78rem/1.5 var(--mono);
-  white-space: pre-wrap;
-  word-break: break-word;
+  /* A grid, not wrapping text: the shell already wraps at the terminal's
+     columns, and re-wrapping here would break the alignment it drew. */
+  white-space: pre;
+  word-break: normal;
 }
 .webterm-input { display: flex; align-items: center; gap: 0.5rem; }
 .webterm-input input {

@@ -15,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import pwd
-import re
 import secrets
 import select
 import socket
@@ -40,9 +39,6 @@ RESTART_UNITS = {
     "public": "portfolio.service",
 }
 SHELL = "/bin/bash"
-# CSI, OSC and single-character escapes, which a line-oriented page cannot draw.
-ANSI = re.compile(rb"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*\x07|[@-Z\\-_])")
-CONTROL = re.compile(rb"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 class Rejected(ValueError):
@@ -50,8 +46,13 @@ class Rejected(ValueError):
 
 
 def clean(data):
-    """Printable text only: no escapes, no carriage returns, no NULs."""
-    return CONTROL.sub(b"", ANSI.sub(b"", data).replace(b"\r", b""))
+    """The page draws a terminal, so sequences pass through untouched.
+
+    Escapes and carriage returns are the shell's own drawing instructions;
+    stripping them here made a progress line pile up and a clear do nothing.
+    Only NUL is dropped, since it draws nothing anywhere.
+    """
+    return data.replace(b"\x00", b"")
 
 
 def account(name):
